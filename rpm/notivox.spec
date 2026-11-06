@@ -1,5 +1,5 @@
 Name:       notivox
-Version:    1.1.0
+Version:    1.1.1
 Release:    1
 Summary:    Reads notifications and incoming calls aloud in your headphones
 License:    GPL-3.0-or-later
@@ -52,7 +52,15 @@ mkdir -p $P/pages $P/py
 install -m644 app/qml/NV.qml app/qml/qmldir $P/
 install -m644 app/qml/pages/*.qml $P/pages/
 install -m644 app/py/notivox_ui.py $P/py/
-install -m644 icons/notivox-settings.png $P/notivox-icon.png
+install -Dm755 sailfish/notivox-place-entry %{buildroot}%{_libexecdir}/notivox/notivox-place-entry
+# Icône au trait du thème Sailfish, recolorée par le système selon que
+# l'ambiance est claire ou sombre.
+for z in 1.0 1.25 1.5 1.5-large 1.75 2.0 2.5; do
+    for d in icons icons-monochrome; do
+        install -Dm644 icons/theme/icon-m-notivox-z$z.png \
+            %{buildroot}%{_datadir}/themes/sailfish-default/silica/z$z/$d/icon-m-notivox.png
+    done
+done
 install -Dm644 settings/notivox.json %{buildroot}%{_datadir}/jolla-settings/entries/notivox.json
 mkdir -p %{buildroot}%{_datadir}/translations
 for f in translations/*.qm; do
@@ -65,6 +73,8 @@ mkdir -p %{buildroot}%{_datadir}/notivox/piper
 cp -a piper-bin/piper/. %{buildroot}%{_datadir}/notivox/piper/
 
 %post
+# Place l'entrée des Paramètres juste après « Sons et retours ».
+%{_libexecdir}/notivox/notivox-place-entry >/dev/null 2>&1 || :
 # Démarre (ou redémarre) le service pour l'utilisateur du téléphone.
 systemctl-user daemon-reload >/dev/null 2>&1 || :
 systemctl-user try-restart notivox.service >/dev/null 2>&1 || :
@@ -85,14 +95,20 @@ systemctl-user daemon-reload >/dev/null 2>&1 || :
 %{_bindir}/notivox-ctl
 %dir %{_libexecdir}/notivox
 %attr(2755,root,privileged) %{_libexecdir}/notivox/notivox-contacts
+%{_libexecdir}/notivox/notivox-place-entry
 %{_userunitdir}/notivox.service
 %{_userunitdir}/user-session.target.wants/notivox.service
 %{_datadir}/notivox
 %{_datadir}/jolla-settings/pages/notivox
-%{_datadir}/jolla-settings/entries/notivox.json
+%verify(not md5 size mtime) %{_datadir}/jolla-settings/entries/notivox.json
+%{_datadir}/themes/sailfish-default/silica/z*/icons*/icon-m-notivox.png
 %{_datadir}/translations/settings-notivox*.qm
 
 %changelog
+* Fri Nov 06 2026 Boris Solodki <solboki@solodki.fr> - 1.1.1-1
+- Settings entry placed right after "Sounds and feedback".
+- Line icon in the Sailfish theme style, black on light ambiences and
+  white on dark ones, at the size of the other icons.
 * Fri Nov 06 2026 Boris Solodki <solboki@solodki.fr> - 1.1.0-1
 - The settings are now a page of the Settings app ("Voice notifications",
   translated in the system language) instead of an app icon.

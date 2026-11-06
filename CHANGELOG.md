@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.1 (2026-11-06)
+
+- The Settings entry sits right after "Sounds and feedback". Its position is computed at installation from that entry's own order number.
+- New line icon in the style of the Sailfish theme: it is installed as a theme icon, so the system draws it black on light ambiences and white on dark ones, at the same size as the other icons.
+
 ## 1.1.0 (2026-11-06)
 
 - The settings are no longer an app with its own icon: they are a page of the Settings app, named "Voice notifications" in the system language (Notification vocale, Sprachbenachrichtigung, etc.).

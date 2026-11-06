@@ -1,0 +1,35 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+"""Place l'entrée « Notification vocale » des Paramètres juste après
+« Sons et retours », en reprenant le numéro d'ordre que cette version de
+Sailfish donne à cette entrée. Lancé à l'installation du paquet."""
+import glob
+import json
+import re
+
+ENTRIES = "/usr/share/jolla-settings/entries"
+MINE = ENTRIES + "/notivox.json"
+
+best = None
+for f in glob.glob(ENTRIES + "/*.json"):
+    if f == MINE:
+        continue
+    try:
+        with open(f, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:
+        continue
+    for e in data.get("entries", []) if isinstance(data, dict) else []:
+        path = str(e.get("path", ""))
+        last = path.rsplit("/", 1)[-1].lower()
+        if path.startswith("system_settings/look_and_feel/") and \
+                "sound" in last and isinstance(e.get("order"), (int, float)):
+            best = e["order"]
+
+if best is not None:
+    with open(MINE, encoding="utf-8") as fh:
+        s = fh.read()
+    s = re.sub(r'"order": *[0-9.]+', '"order": %d' % (int(best) + 1), s)
+    with open(MINE, "w", encoding="utf-8") as fh:
+        fh.write(s)
+    print("notivox: entrée placée à l'ordre %d" % (int(best) + 1))

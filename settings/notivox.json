@@ -6,7 +6,8 @@
             "title": "Voice notifications",
             "translation_id": "settings-notivox-la-title",
             "type": "page",
-            "icon": "/usr/share/jolla-settings/pages/notivox/notivox-icon.png",
+            "icon": "image://theme/icon-m-notivox",
+            "order": 1000,
             "params": {
                 "source": "/usr/share/jolla-settings/pages/notivox/pages/MainPage.qml"
             }
