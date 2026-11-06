@@ -1,0 +1,14 @@
+[Unit]
+Description=Notivox, lecture vocale des notifications et des appels
+After=pre-user-session.target lipstick.service
+Requires=dbus.socket
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/notivox-daemon
+Restart=on-failure
+RestartSec=5
+Nice=5
+
+[Install]
+WantedBy=user-session.target

@@ -1,0 +1,108 @@
+# Notivox
+
+Notivox reads aloud, in your headphones, the notifications of the Sailfish OS apps you choose, and tells you who is calling while the phone rings. Speech is produced on the phone itself by the [Piper](https://github.com/rhasspy/piper) neural text-to-speech engine. Nothing is sent over the network.
+
+This project was vibe-coded with Claude Opus 5.5.
+
+## What it does
+
+The service listens to every notification posted on the phone, native or from Android App Support. For each app you decide whether it is read, and whether Notivox reads the title and the text, the title only (to know who wrote without hearing the message), or just the app name.
+
+For an incoming call, Notivox says the contact's name, or the number if it is not in your contacts, a few times while the phone rings. The announcements stop as soon as you answer or decline.
+
+By default nothing is ever spoken on the phone's loudspeaker. Notivox only talks when Bluetooth or wired headphones are in use.
+
+Each message is read by a voice in its own language when one is installed: a message in English is read by an English voice, a message in French by a French voice. Voices are downloaded from the app, from the public Piper voice repository, in more than fifty languages. For a language without a Piper voice, the much more robotic but very wide eSpeak NG voice can step in.
+
+Reading can be controlled in four ways: the main switch, a timed pause (15 minutes, one hour, two hours, until tomorrow morning), quiet hours by day and time, and the [Situations](https://forum.sailfishos.org/t/situations-application-feedback/16333) app through a command or a D-Bus signal.
+
+## Installing
+
+Copy `notivox-1.0.0-1.aarch64.rpm` to the phone, then in a terminal:
+
+```
+devel-su pkcon install-local notivox-1.0.0-1.aarch64.rpm
+```
+
+The package is for 64-bit ARM phones (aarch64) and weighs about 21 MB, most of it being the Piper engine.
+
+On first launch, the app starts the background service and offers to download a voice in your language (about 60 MB for a "medium" voice, 28 MB for a "low" one). Then open **Apps**: apps appear there with their first notification, all switched off, and you switch on those you want to hear. You can change the default in the same page.
+
+## Situations and the command line
+
+`notivox-ctl` changes the same state as the app's switch:
+
+```
+notivox-ctl on              # turn reading on (and end a pause)
+notivox-ctl off             # turn reading off
+notivox-ctl toggle
+notivox-ctl pause 60        # pause for 60 minutes
+notivox-ctl resume
+notivox-ctl status
+notivox-ctl say "Some text"
+```
+
+In Situations, add a "run command" action with one of these lines. If you prefer D-Bus, the same orders exist as signals on the session bus, path `/org/notivox`, interface `org.notivox.Control`: `Enable`, `Disable`, `Toggle`, `Resume`, `Pause` (int32, minutes) and `Say` (string).
+
+```
+dbus-send --session --type=signal /org/notivox org.notivox.Control.Pause int32:30
+```
+
+## Points to check on your phone
+
+Some parts depend on how each Sailfish device is set up and could only be tested on a simulated bus. If something does not work, switch on **Advanced options › Verbose log**, reproduce the problem, then use **Show the log** on the same page.
+
+Headphone detection relies on `pactl`, with a fallback that asks BlueZ whether an audio device is connected. If your wired headphones are not recognised, the option "Read if the output is not recognised" lets Notivox talk anyway.
+
+The voice is played as a "notification" audio stream, and during a call as a stream named `notiftone`, so that it can be heard over the ringtone. If the voice does not reach the headphones or cuts the ringtone, these stream properties can be changed in the advanced options.
+
+The Sailfish address book is reserved for privileged programs. Notivox ships a tiny helper, `/usr/libexec/notivox/notivox-contacts`, installed with that right, which copies your own address book to `~/.cache/notivox/`, readable by you only, at each incoming call. If it fails, calls are announced with the number.
+
+## Uninstalling
+
+```
+devel-su pkcon remove notivox
+```
+
+Then delete `~/.config/notivox`, `~/.local/share/notivox` (the downloaded voices) and `~/.cache/notivox`.
+
+## Building from source
+
+Building is done on a Debian or Ubuntu computer:
+
+```
+sudo apt install rpm gcc-aarch64-linux-gnu curl
+./make-dist.sh
+```
+
+The script downloads the Piper release for aarch64 and a newer libstdc++ from Debian 11 (Piper needs version 3.4.26, newer than the one shipped with Sailfish OS), compiles the address-book helper, then produces the RPM and a source archive in `dist/`.
+
+To release a new version, change the number in three places: `V=` in `make-dist.sh`, `Version:` in `rpm/notivox.spec` and `VERSION` in `sailfish/notivox-daemon`. Add an entry to `CHANGELOG.md` and to the `%changelog` of the spec file.
+
+## Tests
+
+The service can be tested on a Linux computer without a phone. The test script starts a temporary D-Bus bus, sends notifications, incoming calls and Situations commands on it, and checks what the service would have said:
+
+```
+pip install dbus-next
+PIPER_DIR=/path/to/piper_x86_64 VOICE=/path/to/fr_FR-siwis-medium.onnx ./tests/run-tests.sh
+```
+
+`PIPER_DIR` is the unpacked x86_64 Piper release, `VOICE` a French Piper voice (with its `.onnx.json` next to it).
+
+## Source layout
+
+| Folder | Content |
+|---|---|
+| `sailfish/` | The service (Python, needing only `python3`, `dbus-monitor` and `dbus-send`), the `notivox-ctl` command, the address-book helper, the systemd unit and the launcher. |
+| `app/` | The settings app: Silica interface (QML) and Python backend (PyOtherSide). |
+| `data/` | The list of Piper voices offered for download. |
+| `icons/` | The app icon in every size used. |
+| `rpm/` | The Sailfish package description. |
+| `tests/` | Tests of the service on a simulated D-Bus bus. |
+
+## License
+
+Notivox is free software, released under the GNU GPL version 3 or later. The full text is in the `LICENSE` file.
+
+The package also contains Piper and ONNX Runtime (MIT licence), eSpeak NG (GPL version 3) and the GCC runtime libraries (GPL version 3 with the GCC runtime library exception). Voices are downloaded separately and each comes with its own licence, shown in its model card on the Piper voices repository.

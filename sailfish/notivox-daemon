@@ -1,0 +1,1430 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+"""Notivox : lit à voix haute, dans les écouteurs, les notifications et
+les appels entrants d'un téléphone Sailfish OS.
+
+Le service écoute le bus D-Bus de session (appels à
+org.freedesktop.Notifications.Notify) et le bus système (signaux d'oFono
+pour les appels), choisit une voix Piper selon la langue du texte, puis
+joue le son produit sur la sortie audio active, uniquement si des
+écouteurs sont branchés (réglable).
+
+Il ne dépend que de python3, de dbus-monitor et de dbus-send. Le moteur
+de synthèse vocale Piper est livré dans /usr/share/notivox/piper.
+
+Vibe-coded with Claude Opus 5.5. Licence : GPL-3.0-or-later.
+"""
+
+import json
+import os
+import queue
+import re
+import select
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import wave
+from array import array
+
+VERSION = "1.0.0"
+
+HOME = os.path.expanduser("~")
+CONF_DIR = os.environ.get("NOTIVOX_CONF_DIR",
+                          os.path.join(HOME, ".config", "notivox"))
+DATA_DIR = os.environ.get("NOTIVOX_DATA_DIR",
+                          os.path.join(HOME, ".local", "share", "notivox"))
+CACHE_DIR = os.environ.get("NOTIVOX_CACHE_DIR",
+                           os.path.join(HOME, ".cache", "notivox"))
+VOICE_DIR = os.path.join(DATA_DIR, "voices")
+CONFIG_FILE = os.path.join(CONF_DIR, "config.json")
+STATE_FILE = os.path.join(CONF_DIR, "state.json")
+SEEN_FILE = os.path.join(CONF_DIR, "apps-seen.json")
+STATUS_FILE = os.path.join(CACHE_DIR, "status.json")
+
+SHARE = os.environ.get("NOTIVOX_SHARE", "/usr/share/notivox")
+PIPER_DIR = os.environ.get("NOTIVOX_PIPER_DIR", os.path.join(SHARE, "piper"))
+CONTACTS_HELPER = os.environ.get("NOTIVOX_CONTACTS_HELPER",
+                                 "/usr/libexec/notivox/notivox-contacts")
+CONTACTS_DB = os.path.join(
+    HOME, ".local/share/system/privileged/Contacts/qtcontacts-sqlite/"
+    "contacts.db")
+OFONO_BUS = os.environ.get("NOTIVOX_OFONO_BUS", "system")
+
+CONTROL_IFACE = "org.notivox.Control"
+
+DEFAULT_CONFIG = {
+    # Langue des phrases d'annonce (« Appel de… ») et langue par défaut
+    "language": "fr",
+    # Voix Piper préférée pour chaque langue (code court -> clé de voix)
+    "voices": {},
+    # Détecter la langue de chaque texte pour choisir la voix
+    "detect_language": True,
+    # Voix eSpeak NG de secours quand aucune voix Piper n'est installée
+    "espeak_fallback": True,
+    "speed": 1.0,          # 1.0 = vitesse normale de la voix
+    "volume": 100,         # en pour cent, 150 au maximum
+    # Lire seulement si des écouteurs (Bluetooth ou filaires) sont actifs
+    "require_headphones": True,
+    # Si la sortie ne peut pas être déterminée : lire quand même ?
+    "speak_if_output_unknown": False,
+    "respect_silent_profile": False,
+    "skip_during_call": True,
+    "announce_app": True,
+    "max_chars": 300,
+    # Traitement des applications jamais réglées
+    "new_apps_default": False,
+    # Réglages par application, indexés par le nom de l'application :
+    #   read : lire (bool) ; content : "full", "title" ou "app" ;
+    #   lang : "auto" ou code de langue
+    "apps": {},
+    # Applications ignorées d'office (bruit du système)
+    "ignored_apps": ["notivox", "Notivox"],
+    "calls": {
+        "enabled": True,
+        "repeat": 3,
+        "interval": 6,
+        "first_delay": 1.5,
+        "announce_unknown": True,
+        "obey_schedule": False,
+    },
+    "schedule": {
+        "enabled": False,
+        # Plages de silence : jours (0 = lundi) et heures "HH:MM"
+        "rules": [],
+    },
+    "audio": {
+        # Propriétés PulseAudio du flux, au format "clé=valeur;clé=valeur"
+        "notification_props": "media.role=notification",
+        "call_props": "media.name=notiftone",
+    },
+    "debug": False,
+}
+
+DEFAULT_STATE = {"enabled": True, "pause_until": 0}
+
+_log_lock = threading.Lock()
+CFG = {}
+STATE = {}
+
+
+def log(*args):
+    with _log_lock:
+        print("notivox:", *args, file=sys.stderr, flush=True)
+
+
+def dbg(*args):
+    if CFG.get("debug") or os.environ.get("NOTIVOX_DEBUG") == "1":
+        log("[debug]", *args)
+
+
+# ---------------------------------------------------------------------------
+# Fichiers de réglages
+# ---------------------------------------------------------------------------
+
+def merge(default, value):
+    """Complète value avec les clés manquantes de default, récursivement."""
+    if isinstance(default, dict) and isinstance(value, dict):
+        out = dict(default)
+        for k, v in value.items():
+            out[k] = merge(default.get(k), v) if k in default else v
+        return out
+    return default if value is None else value
+
+
+def read_json(path, default):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return merge(default, json.load(f))
+    except FileNotFoundError:
+        return json.loads(json.dumps(default))
+    except Exception as exc:
+        log("fichier illisible, valeurs par défaut utilisées :", path, exc)
+        return json.loads(json.dumps(default))
+
+
+def write_json(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".tmp")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
+
+
+class Watched:
+    """Relit un fichier JSON quand sa date de modification change."""
+
+    def __init__(self, path, default):
+        self.path, self.default, self.mtime = path, default, None
+
+    def changed(self):
+        try:
+            m = os.stat(self.path).st_mtime_ns
+        except FileNotFoundError:
+            m = 0
+        if m != self.mtime:
+            self.mtime = m
+            return True
+        return False
+
+    def load(self):
+        return read_json(self.path, self.default)
+
+
+# ---------------------------------------------------------------------------
+# Lecture de la sortie de dbus-monitor et de dbus-send
+# ---------------------------------------------------------------------------
+
+HEADER_RE = re.compile(r"^(method call|method return|signal|error) ")
+TOKEN_RE = re.compile(
+    r"^\s+(string |object path |signature |u?int(16|32|64) |byte |"
+    r"boolean |double |variant|array \[|dict entry\(|struct \{|\]|\)|\}|"
+    r"file descriptor|unix fd)")
+
+
+def split_messages(lines):
+    """Regroupe les lignes en messages (en-tête + lignes de valeurs)."""
+    msg = None
+    for line in lines:
+        line = line.rstrip("\n")
+        if HEADER_RE.match(line):
+            if msg is not None:
+                yield msg
+            msg = [line]
+        elif msg is not None:
+            msg.append(line)
+    if msg is not None:
+        yield msg
+
+
+def header_fields(header):
+    out = {}
+    for m in re.finditer(r"(\w+)=([^\s;]+)", header):
+        out[m.group(1)] = m.group(2)
+    return out
+
+
+def tokenize(body):
+    """Découpe le corps d'un message en jetons (type, valeur).
+
+    Les chaînes sont affichées par dbus-monitor sans échappement : une
+    chaîne peut contenir des guillemets et des retours à la ligne. Elle
+    se termine donc sur une ligne finissant par un guillemet, suivie d'une
+    ligne qui ressemble au début d'une nouvelle valeur."""
+    toks = []
+    i, n = 0, len(body)
+    while i < n:
+        line = body[i]
+        s = line.strip()
+        if not s:
+            i += 1
+            continue
+        m = re.match(r"^(string|object path|signature) \"(.*)$", s)
+        if m:
+            rest = m.group(2)
+            parts = [rest]
+            j = i
+            while True:
+                last = parts[-1]
+                nxt = body[j + 1] if j + 1 < n else None
+                if last.endswith('"') and (nxt is None or TOKEN_RE.match(nxt)
+                                           or not nxt.strip()):
+                    break
+                if nxt is None:
+                    parts[-1] = last + '"'
+                    break
+                j += 1
+                parts.append(body[j])
+            text = "\n".join(parts)[:-1]
+            toks.append(("str", text))
+            i = j + 1
+            continue
+        if s.startswith("variant"):
+            toks.append(("variant", None))
+            rest = s[len("variant"):].strip()
+            if rest:
+                body = body[:i] + ["   " + rest] + body[i + 1:]
+                n = len(body)
+                continue
+            i += 1
+            continue
+        if s.startswith("array ["):
+            toks.append(("[", None))
+            if s.endswith("]"):
+                toks.append(("]", None))
+        elif s.startswith("dict entry("):
+            toks.append(("(", None))
+        elif s.startswith("struct {"):
+            toks.append(("{", None))
+        elif s in ("]", ")", "}"):
+            toks.append((s, None))
+        else:
+            m = re.match(r"^(u?int16|u?int32|u?int64|byte|double) (\S+)", s)
+            if m:
+                try:
+                    v = float(m.group(2)) if m.group(1) == "double" \
+                        else int(m.group(2), 0)
+                except ValueError:
+                    v = m.group(2)
+                toks.append(("num", v))
+            elif s.startswith("boolean "):
+                toks.append(("bool", s.split()[1] == "true"))
+            else:
+                toks.append(("other", s))
+        i += 1
+    return toks
+
+
+def parse_values(toks):
+    """Transforme les jetons en valeurs Python (listes, dict, tuples)."""
+    pos = 0
+
+    def value():
+        nonlocal pos
+        t, v = toks[pos]
+        pos += 1
+        if t == "variant":
+            return value()
+        if t == "[":
+            items = []
+            while pos < len(toks) and toks[pos][0] != "]":
+                items.append(value())
+            pos += 1
+            if items and all(isinstance(x, tuple) and len(x) == 3
+                             and x[0] == "__entry__" for x in items):
+                return {x[1]: x[2] for x in items}
+            return items
+        if t == "(":
+            k = value()
+            val = value()
+            if pos < len(toks) and toks[pos][0] == ")":
+                pos += 1
+            return ("__entry__", k, val)
+        if t == "{":
+            items = []
+            while pos < len(toks) and toks[pos][0] != "}":
+                items.append(value())
+            pos += 1
+            return tuple(items)
+        return v
+
+    out = []
+    while pos < len(toks):
+        if toks[pos][0] in ("]", ")", "}"):
+            pos += 1
+            continue
+        out.append(value())
+    return out
+
+
+def parse_message(msg):
+    head = header_fields(msg[0])
+    head["kind"] = msg[0].split(" time=")[0]
+    return head, parse_values(tokenize(msg[1:]))
+
+
+def monitor(bus, matches, handler, name):
+    """Lance dbus-monitor et transmet chaque message à handler, en boucle
+    (avec redémarrage si dbus-monitor s'arrête)."""
+    cmd = ["dbus-monitor", "--" + bus] + matches
+    while True:
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                    stderr=subprocess.DEVNULL, bufsize=0)
+        except OSError as exc:
+            log("impossible de lancer dbus-monitor (%s) : %s" % (name, exc))
+            time.sleep(30)
+            continue
+        dbg("écoute", name, "lancée")
+        buf = []
+
+        def flush():
+            for m in split_messages(buf):
+                try:
+                    handler(*parse_message(m))
+                except Exception as exc:
+                    log("erreur de traitement (%s) : %r" % (name, exc))
+            buf.clear()
+
+        # Lecture directe du descripteur : un readline() tamponné cacherait
+        # à select() des lignes déjà reçues.
+        fd = proc.stdout.fileno()
+        pending = b""
+        eof = False
+        while not eof:
+            ready, _, _ = select.select([fd], [], [], 0.4)
+            if ready:
+                chunk = os.read(fd, 65536)
+                if not chunk:
+                    eof = True
+                    chunk = b"\n"
+                pending += chunk
+                *lines, pending = pending.split(b"\n")
+                for raw in lines:
+                    line = raw.decode("utf-8", "replace") + "\n"
+                    if HEADER_RE.match(line) and buf:
+                        flush()
+                    buf.append(line)
+            elif buf:
+                # Rien de nouveau depuis 0,4 s : le message est complet.
+                flush()
+        flush()
+        proc.wait()
+        log("dbus-monitor (%s) s'est arrêté, relance dans 5 s" % name)
+        time.sleep(5)
+
+
+def dbus_send(bus, dest, path, method, *args, timeout=3):
+    cmd = ["dbus-send", "--" + bus, "--print-reply",
+           "--reply-timeout=%d" % (timeout * 1000),
+           "--dest=" + dest, path, method] + list(args)
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True,
+                             timeout=timeout + 2).stdout
+    except Exception:
+        return None
+    msgs = list(split_messages(out.splitlines()))
+    if not msgs:
+        return None
+    return parse_message(msgs[0])[1]
+
+
+# ---------------------------------------------------------------------------
+# Sortie audio : y a-t-il des écouteurs ?
+# ---------------------------------------------------------------------------
+
+HEADSET_PORT_RE = re.compile(r"(headset|headphone|wired|bluetooth|usb|"
+                             r"lineout|line-out)", re.I)
+
+
+def output_from_pactl():
+    if not shutil.which("pactl"):
+        return None
+    try:
+        out = subprocess.run(["pactl", "list", "sinks"], capture_output=True,
+                             text=True, timeout=4).stdout
+    except Exception:
+        return None
+    if not out.strip():
+        return None
+    result = "speaker"
+    for block in re.split(r"\n(?=Sink #)", out):
+        name = re.search(r"^\s*Name:\s*(\S+)", block, re.M)
+        port = re.search(r"^\s*Active Port:\s*(\S+)", block, re.M)
+        name = name.group(1) if name else ""
+        port = port.group(1) if port else ""
+        if "bluez" in name or "bluetooth" in port.lower():
+            return "bluetooth"
+        if port and HEADSET_PORT_RE.search(port):
+            result = "wired"
+    return result
+
+
+A2DP_UUIDS = ("0000110b", "0000110d", "0000111e", "00001108", "00001131")
+
+
+def output_from_bluez():
+    vals = dbus_send("system", "org.bluez", "/",
+                     "org.freedesktop.DBus.ObjectManager.GetManagedObjects")
+    if not vals or not isinstance(vals[0], dict):
+        return None
+    for ifaces in vals[0].values():
+        dev = ifaces.get("org.bluez.Device1") if isinstance(ifaces, dict) \
+            else None
+        if not isinstance(dev, dict) or not dev.get("Connected"):
+            continue
+        uuids = [str(u).lower() for u in dev.get("UUIDs", [])]
+        if any(u.startswith(a) for u in uuids for a in A2DP_UUIDS):
+            return "bluetooth"
+    return "speaker"
+
+
+_output_cache = (0.0, "unknown")
+
+
+def audio_output():
+    """Renvoie "bluetooth", "wired", "speaker" ou "unknown"."""
+    global _output_cache
+    now = time.time()
+    if now - _output_cache[0] < 2:
+        return _output_cache[1]
+    forced = os.environ.get("NOTIVOX_FORCE_OUTPUT")
+    res = forced or output_from_pactl()
+    if res in (None, "speaker") and not forced:
+        bt = output_from_bluez()
+        if bt == "bluetooth" or res is None:
+            res = bt
+    res = res or "unknown"
+    _output_cache = (now, res)
+    return res
+
+
+def silent_profile():
+    vals = dbus_send("session", "com.nokia.profiled", "/com/nokia/profiled",
+                     "com.nokia.profiled.get_profile")
+    return bool(vals) and vals[0] == "silent"
+
+
+# ---------------------------------------------------------------------------
+# Langues : phrases d'annonce et détection de la langue d'un texte
+# ---------------------------------------------------------------------------
+
+PHRASES = {
+    "fr": {"call": "Appel de {}", "call_number": "Appel du {}",
+           "call_hidden": "Appel masqué", "test": "Bonjour, ceci est un "
+           "essai de Notivox."},
+    "en": {"call": "Call from {}", "call_number": "Call from {}",
+           "call_hidden": "Call from a hidden number",
+           "test": "Hello, this is a Notivox test."},
+    "de": {"call": "Anruf von {}", "call_number": "Anruf von {}",
+           "call_hidden": "Anruf mit unterdrückter Nummer",
+           "test": "Hallo, das ist ein Test von Notivox."},
+    "es": {"call": "Llamada de {}", "call_number": "Llamada del {}",
+           "call_hidden": "Llamada oculta",
+           "test": "Hola, esto es una prueba de Notivox."},
+    "it": {"call": "Chiamata da {}", "call_number": "Chiamata dal {}",
+           "call_hidden": "Chiamata anonima",
+           "test": "Ciao, questa è una prova di Notivox."},
+    "pt": {"call": "Chamada de {}", "call_number": "Chamada do {}",
+           "call_hidden": "Chamada anónima",
+           "test": "Olá, isto é um teste do Notivox."},
+    "nl": {"call": "Oproep van {}", "call_number": "Oproep van {}",
+           "call_hidden": "Anonieme oproep",
+           "test": "Hallo, dit is een test van Notivox."},
+    "fi": {"call": "Puhelu: {}", "call_number": "Puhelu numerosta {}",
+           "call_hidden": "Tuntematon soittaja",
+           "test": "Hei, tämä on Notivoxin testi."},
+    "sv": {"call": "Samtal från {}", "call_number": "Samtal från {}",
+           "call_hidden": "Dolt nummer",
+           "test": "Hej, det här är ett test av Notivox."},
+    "pl": {"call": "Połączenie od {}", "call_number": "Połączenie z {}",
+           "call_hidden": "Numer zastrzeżony",
+           "test": "Cześć, to jest test Notivox."},
+    "ru": {"call": "Звонит {}", "call_number": "Звонок с номера {}",
+           "call_hidden": "Скрытый номер",
+           "test": "Привет, это проверка Notivox."},
+}
+
+STOPWORDS = {
+    "fr": "le la les de des du un une et est pas que qui pour dans sur "
+          "avec vous je tu il elle on nous ce cette au aux mais ou ne plus "
+          "suis es sont salut bonjour merci oui non ça va demain ce soir",
+    "en": "the and is are you to of in it for on with this that have be "
+          "at not your from can will hi hello thanks yes no my me we what",
+    "de": "der die das und ist nicht ich du sie wir ein eine zu mit auf "
+          "für von den dem es ja nein danke hallo bin bist sind auch was",
+    "es": "el la los las de que y en un una es por con para no se lo "
+          "hola gracias sí está estoy muy pero como más qué",
+    "it": "il lo la gli le di che e è un una per con non sono ciao "
+          "grazie sì come più ma anche questo della",
+    "pt": "o a os as de que e é um uma para com não em do da olá "
+          "obrigado sim está muito mas como você",
+    "nl": "de het een en is niet ik je jij we zijn van op met voor dat "
+          "hallo dank ja nee ook maar wat",
+    "sv": "och är det en ett att jag du inte på med för som har hej tack "
+          "ja nej vi vad",
+    "da": "og er det en et at jeg du ikke på med for som har hej tak ja "
+          "nej vi hvad",
+    "no": "og er det en et at jeg du ikke på med for som har hei takk ja "
+          "nei vi hva",
+    "fi": "ja on ei se että minä sinä hän me te he olen olet kiitos "
+          "moi hei kyllä mitä",
+    "pl": "i w nie na się że to jest z do jak ale co tak cześć dzięki "
+          "jestem jesteś",
+    "cs": "a je to se na že v s jak ale co ano ne ahoj děkuji jsem",
+    "ca": "el la els les de que i en un una és per amb no hola gràcies",
+    "ro": "și de la în nu este un o că pe cu salut mulțumesc da",
+    "hu": "a az és nem hogy van egy de is szia köszönöm igen",
+    "tr": "ve bir bu da de değil ne için merhaba teşekkürler evet hayır",
+}
+STOPWORDS = {k: set(v.split()) for k, v in STOPWORDS.items()}
+
+
+def detect_language(text, candidates, default):
+    """Devine la langue d'un texte parmi les langues candidates (celles
+    pour lesquelles une voix est installée). Renvoie default en cas de
+    doute, en particulier pour les textes très courts."""
+    if not text:
+        return default
+    if re.search(r"[Ѐ-ӿ]", text):
+        if re.search(r"[іїєґІЇЄҐ]", text) and "uk" in candidates:
+            return "uk"
+        for c in ("ru", "uk", "bg", "sr", "kk"):
+            if c in candidates:
+                return c
+    scripts = [("el", r"[Ͱ-Ͽ]"), ("ar", r"[؀-ۿ]"),
+               ("fa", r"[؀-ۿ]"), ("he", r"[֐-׿]"),
+               ("ka", r"[Ⴀ-ჿ]"), ("hy", r"[԰-֏]"),
+               ("zh", r"[一-鿿]"), ("hi", r"[ऀ-ॿ]"),
+               ("th", r"[฀-๿]")]
+    for code, rx in scripts:
+        if re.search(rx, text) and code in candidates:
+            return code
+    words = re.findall(r"[^\W\d_]+", text.lower())
+    if len(words) < 3:
+        return default
+    scores = {}
+    for lang in candidates:
+        sw = STOPWORDS.get(lang)
+        if sw:
+            scores[lang] = sum(1 for w in words if w in sw)
+    if not scores:
+        return default
+    best = max(scores, key=lambda k: (scores[k], k == default))
+    # Il faut au moins deux mots outils reconnus, et plus que pour la
+    # langue par défaut : un seul « moi » ne fait pas un texte finnois.
+    if scores[best] < 2 or scores.get(default, 0) >= scores[best]:
+        return default
+    return best
+
+
+def candidate_langs():
+    """Langues entre lesquelles choisir : celles des voix installées, plus
+    toutes celles que l'on sait reconnaître si eSpeak NG peut servir de
+    voix de secours."""
+    cands = set(voice_lang(v) for v in installed_voices())
+    cands.add(CFG.get("language", "fr"))
+    if CFG.get("espeak_fallback", True):
+        cands |= set(STOPWORDS) | {"ru", "uk", "el", "ar", "he"}
+    return cands
+
+
+def phrase(key, lang):
+    return PHRASES.get(lang, PHRASES["en"]).get(key) or PHRASES["en"][key]
+
+
+def speakable_number(number, lang):
+    d = re.sub(r"[^\d+]", "", number or "")
+    if lang == "fr" and d.startswith("+33") and len(d) == 12:
+        d = "0" + d[3:]
+    if lang == "fr" and len(d) == 10 and d.startswith("0"):
+        return " ".join(d[i:i + 2] for i in range(0, 10, 2))
+    return " ".join(d) if len(d) <= 6 else \
+        " ".join(d[i:i + 3] for i in range(0, len(d), 3))
+
+
+# ---------------------------------------------------------------------------
+# Voix installées et synthèse avec Piper
+# ---------------------------------------------------------------------------
+
+def installed_voices():
+    """{clé de voix: chemin du modèle .onnx} pour les voix téléchargées."""
+    out = {}
+    try:
+        for name in os.listdir(VOICE_DIR):
+            if name.endswith(".onnx") and os.path.exists(
+                    os.path.join(VOICE_DIR, name + ".json")):
+                out[name[:-5]] = os.path.join(VOICE_DIR, name)
+    except FileNotFoundError:
+        pass
+    return out
+
+
+def voice_lang(key):
+    return key.split("_")[0].split("-")[0]
+
+
+def choose_voice(lang):
+    voices = installed_voices()
+    want = CFG.get("voices", {}).get(lang)
+    if want in voices:
+        return want
+    same = sorted(k for k in voices if voice_lang(k) == lang)
+    return same[0] if same else None
+
+
+def piper_env():
+    env = dict(os.environ)
+    env["LD_LIBRARY_PATH"] = PIPER_DIR + (
+        ":" + env["LD_LIBRARY_PATH"] if env.get("LD_LIBRARY_PATH") else "")
+    return env
+
+
+class PiperPool:
+    """Garde un processus Piper vivant par voix récemment utilisée : le
+    chargement d'un modèle prend une à deux secondes, la synthèse d'une
+    phrase ensuite une fraction de seconde."""
+
+    MAX = 2
+    IDLE = 300
+
+    def __init__(self):
+        self.procs = {}   # voix -> [Popen, dernière utilisation, vitesse]
+        self.lock = threading.Lock()
+
+    def _spawn(self, voice, speed):
+        model = installed_voices().get(voice)
+        if not model:
+            raise RuntimeError("voix absente : %s" % voice)
+        exe = os.path.join(PIPER_DIR, "piper")
+        cmd = [exe, "--model", model, "--json-input", "--quiet",
+               "--espeak_data", os.path.join(PIPER_DIR, "espeak-ng-data"),
+               "--length_scale", "%.3f" % (1.0 / max(0.4, speed))]
+        dbg("lancement de Piper :", voice)
+        return subprocess.Popen(cmd, stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, text=True,
+                                encoding="utf-8", bufsize=1, env=piper_env())
+
+    def synth(self, voice, text, out_path, speed):
+        with self.lock:
+            for attempt in (1, 2):
+                ent = self.procs.get(voice)
+                if ent and (ent[0].poll() is not None or ent[2] != speed):
+                    self._kill(voice)
+                    ent = None
+                if not ent:
+                    while len(self.procs) >= self.MAX:
+                        oldest = min(self.procs, key=lambda k:
+                                     self.procs[k][1])
+                        self._kill(oldest)
+                    ent = [self._spawn(voice, speed), 0, speed]
+                    self.procs[voice] = ent
+                ent[1] = time.time()
+                p = ent[0]
+                try:
+                    p.stdin.write(json.dumps({"text": text,
+                                              "output_file": out_path},
+                                             ensure_ascii=False) + "\n")
+                    p.stdin.flush()
+                    ready, _, _ = select.select([p.stdout], [], [], 60)
+                    if ready:
+                        line = p.stdout.readline().strip()
+                        if line and os.path.exists(out_path):
+                            return out_path
+                except (BrokenPipeError, OSError) as exc:
+                    dbg("Piper interrompu :", exc)
+                self._kill(voice)
+            raise RuntimeError("Piper n'a pas produit de son")
+
+    def _kill(self, voice):
+        ent = self.procs.pop(voice, None)
+        if ent:
+            try:
+                ent[0].kill()
+                ent[0].wait(2)
+            except Exception:
+                pass
+
+    def cleanup(self):
+        with self.lock:
+            now = time.time()
+            for v in [k for k, e in self.procs.items()
+                      if now - e[1] > self.IDLE]:
+                dbg("arrêt de Piper inactif :", v)
+                self._kill(v)
+
+    def stop(self):
+        with self.lock:
+            for v in list(self.procs):
+                self._kill(v)
+
+
+def espeak_synth(lang, text, out_path, speed):
+    exe = os.path.join(PIPER_DIR, "espeak-ng")
+    cmd = [exe, "--path=" + PIPER_DIR, "-v", lang,
+           "-s", str(int(165 * speed)), "-w", out_path, text]
+    subprocess.run(cmd, env=piper_env(), timeout=30,
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if not os.path.exists(out_path) or os.path.getsize(out_path) < 100:
+        raise RuntimeError("eSpeak NG n'a pas produit de son")
+    return out_path
+
+
+def apply_volume(path, percent):
+    """Ajuste le volume du fichier WAV (16 bits) en place."""
+    if percent == 100:
+        return
+    with wave.open(path, "rb") as w:
+        params = w.getparams()
+        data = w.readframes(w.getnframes())
+    if params.sampwidth != 2:
+        return
+    a = array("h")
+    a.frombytes(data)
+    if sys.byteorder == "big":
+        a.byteswap()
+    g = max(0.1, min(1.5, percent / 100.0))
+    for i in range(len(a)):
+        v = int(a[i] * g)
+        a[i] = 32767 if v > 32767 else (-32768 if v < -32768 else v)
+    if sys.byteorder == "big":
+        a.byteswap()
+    with wave.open(path, "wb") as w:
+        w.setparams(params)
+        w.writeframes(a.tobytes())
+
+
+def parse_props(s):
+    out = []
+    for part in (s or "").split(";"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            if k.strip():
+                out.append((k.strip(), v.strip()))
+    return out
+
+
+def player_command(path, props):
+    if os.environ.get("NOTIVOX_PLAYER"):
+        return [os.environ["NOTIVOX_PLAYER"], path]
+    if shutil.which("paplay"):
+        return ["paplay"] + ["--property=%s=%s" % kv for kv in props] + [path]
+    if find_libpulse_simple():
+        return [sys.executable, os.path.abspath(__file__), "--play", path] + \
+            ["%s=%s" % kv for kv in props]
+    if shutil.which("gst-launch-1.0"):
+        sp = ",".join("%s=%s" % kv for kv in props)
+        sink = ["pulsesink"] + (['stream-properties=props,' + sp]
+                                if sp else [])
+        return ["gst-launch-1.0", "-q", "filesrc", "location=" + path, "!",
+                "wavparse", "!", "audioconvert", "!", "audioresample",
+                "!"] + sink
+    if shutil.which("aplay"):
+        return ["aplay", "-q", path]
+    return None
+
+
+def find_libpulse_simple():
+    for name in ("libpulse-simple.so.0", "/usr/lib64/libpulse-simple.so.0",
+                 "/usr/lib/libpulse-simple.so.0"):
+        if os.path.sep not in name or os.path.exists(name):
+            try:
+                import ctypes
+                return ctypes.CDLL(name)
+            except OSError:
+                continue
+    return None
+
+
+def play_with_libpulse(path, props):
+    """Lecteur de secours, quand paplay n'est pas installé : joue le
+    fichier WAV avec la bibliothèque PulseAudio présente sur tout
+    téléphone Sailfish. Lancé dans un processus à part pour pouvoir être
+    interrompu."""
+    import ctypes
+    lib = find_libpulse_simple()
+    if not lib:
+        return 1
+    props = dict(props)
+    # media.name devient le nom du flux ; les autres propriétés passent
+    # par la variable PULSE_PROP, lue par la bibliothèque au démarrage.
+    stream_name = props.pop("media.name", "Notivox")
+    if props:
+        os.environ["PULSE_PROP"] = " ".join(
+            "%s='%s'" % (k, v.replace("'", "")) for k, v in props.items())
+
+    class Spec(ctypes.Structure):
+        _fields_ = [("format", ctypes.c_int), ("rate", ctypes.c_uint32),
+                    ("channels", ctypes.c_uint8)]
+
+    with wave.open(path, "rb") as w:
+        if w.getsampwidth() != 2:
+            return 1
+        spec = Spec(3, w.getframerate(), w.getnchannels())  # S16LE
+        data = w.readframes(w.getnframes())
+    lib.pa_simple_new.restype = ctypes.c_void_p
+    lib.pa_simple_new.argtypes = [ctypes.c_char_p, ctypes.c_char_p,
+                                  ctypes.c_int, ctypes.c_char_p,
+                                  ctypes.c_char_p, ctypes.POINTER(Spec),
+                                  ctypes.c_void_p, ctypes.c_void_p,
+                                  ctypes.POINTER(ctypes.c_int)]
+    lib.pa_simple_write.argtypes = [ctypes.c_void_p, ctypes.c_char_p,
+                                    ctypes.c_size_t,
+                                    ctypes.POINTER(ctypes.c_int)]
+    lib.pa_simple_drain.argtypes = [ctypes.c_void_p,
+                                    ctypes.POINTER(ctypes.c_int)]
+    lib.pa_simple_free.argtypes = [ctypes.c_void_p]
+    err = ctypes.c_int(0)
+    s = lib.pa_simple_new(None, b"Notivox", 1, None,
+                          stream_name.encode("utf-8"), ctypes.byref(spec),
+                          None, None, ctypes.byref(err))
+    if not s:
+        print("pa_simple_new: erreur %d" % err.value, file=sys.stderr)
+        return 1
+    try:
+        lib.pa_simple_write(s, data, len(data), ctypes.byref(err))
+        lib.pa_simple_drain(s, ctypes.byref(err))
+    finally:
+        lib.pa_simple_free(s)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# File de lecture
+# ---------------------------------------------------------------------------
+
+class Speaker(threading.Thread):
+    """Lit les annonces une par une. Une annonce d'appel interrompt la
+    lecture en cours et passe devant les notifications en attente."""
+
+    def __init__(self, pool):
+        super().__init__(daemon=True)
+        self.pool = pool
+        self.q = queue.PriorityQueue()
+        self.seq = 0
+        self.lock = threading.Lock()
+        self.current = None      # (priorité, Popen du lecteur)
+        self.last_spoken = ""
+        self.last_error = ""
+
+    def say(self, text, lang=None, prio=5, props_key="notification_props",
+            tag=None, force=False, voice=None):
+        with self.lock:
+            self.seq += 1
+            # Au-delà de cinq notifications en attente, on oublie les plus
+            # anciennes : mieux vaut perdre un message que parler en retard.
+            if prio >= 5 and self.q.qsize() >= 5:
+                kept = []
+                while not self.q.empty():
+                    kept.append(self.q.get_nowait())
+                kept.sort()
+                calls = [k for k in kept if k[0] < 5]
+                notifs = [k for k in kept if k[0] >= 5][-4:]
+                for k in calls + notifs:
+                    self.q.put(k)
+            self.q.put((prio, self.seq, text, lang, props_key, tag, force,
+                        voice))
+            cur = self.current
+        if cur and prio < cur[0]:
+            self.interrupt()
+
+    def cancel(self, tag):
+        """Retire de la file les annonces portant cette étiquette."""
+        kept = []
+        while not self.q.empty():
+            item = self.q.get_nowait()
+            if item[5] != tag:
+                kept.append(item)
+        for k in kept:
+            self.q.put(k)
+        cur = self.current
+        if cur and cur[2] == tag:
+            self.interrupt()
+
+    def interrupt(self):
+        cur = self.current
+        if cur and cur[1]:
+            try:
+                cur[1].terminate()
+            except Exception:
+                pass
+
+    def run(self):
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        while True:
+            prio, _seq, text, lang, props_key, tag, force, voice = \
+                self.q.get()
+            try:
+                self.speak(prio, text, lang, props_key, tag, force, voice)
+            except Exception as exc:
+                self.last_error = str(exc)
+                log("échec de la lecture :", exc)
+
+    def speak(self, prio, text, lang, props_key, tag, force, want=None):
+        if not force and not may_speak(call=prio < 5):
+            dbg("lecture annulée au dernier moment :", text[:60])
+            return
+        lang = lang or CFG.get("language", "fr")
+        speed = float(CFG.get("speed", 1.0) or 1.0)
+        out = os.path.join(CACHE_DIR, "say-%d.wav" % os.getpid())
+        try:
+            os.unlink(out)
+        except FileNotFoundError:
+            pass
+        voice = want if want in installed_voices() else choose_voice(lang)
+        if not voice and lang != CFG.get("language"):
+            if not CFG.get("espeak_fallback"):
+                lang = CFG.get("language", "fr")
+                voice = choose_voice(lang)
+        if voice:
+            self.pool.synth(voice, text, out, speed)
+        elif CFG.get("espeak_fallback", True):
+            espeak_synth(lang, text, out, speed)
+        else:
+            raise RuntimeError("aucune voix installée pour « %s »" % lang)
+        apply_volume(out, int(CFG.get("volume", 100)))
+        props = parse_props(CFG.get("audio", {}).get(props_key, ""))
+        props.append(("media.title", "Notivox"))
+        cmd = player_command(out, props)
+        if not cmd:
+            raise RuntimeError("aucun lecteur audio (paplay, gst-launch-1.0)")
+        dbg("lecture [%s/%s] : %s" % (lang, voice or "espeak", text[:80]))
+        p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.PIPE, text=True)
+        self.current = (prio, p, tag)
+        try:
+            _, err = p.communicate(timeout=120)
+            if p.returncode not in (0, -15) and err:
+                self.last_error = err.strip()[:200]
+                log("le lecteur audio a signalé :", err.strip()[:200])
+        except subprocess.TimeoutExpired:
+            p.kill()
+        finally:
+            self.current = None
+        self.last_spoken = text[:120]
+        self.last_error = ""
+
+
+# ---------------------------------------------------------------------------
+# Règles : faut-il parler maintenant ?
+# ---------------------------------------------------------------------------
+
+def hm(s):
+    try:
+        h, m = s.split(":")
+        return int(h) * 60 + int(m)
+    except Exception:
+        return None
+
+
+def in_quiet_hours(now=None):
+    sch = CFG.get("schedule", {})
+    if not sch.get("enabled"):
+        return False
+    t = time.localtime(now or time.time())
+    minute = t.tm_hour * 60 + t.tm_min
+    today = t.tm_wday
+    yesterday = (today - 1) % 7
+    for r in sch.get("rules", []):
+        a, b = hm(r.get("start", "")), hm(r.get("end", ""))
+        days = r.get("days", list(range(7)))
+        if a is None or b is None or a == b:
+            continue
+        if a < b:
+            if today in days and a <= minute < b:
+                return True
+        else:
+            # Plage à cheval sur minuit : 22:00 -> 07:00
+            if (today in days and minute >= a) or \
+               (yesterday in days and minute < b):
+                return True
+    return False
+
+
+CALLS = {}        # chemin oFono -> état et informations de l'appel
+CALLS_LOCK = threading.Lock()
+
+
+def in_call():
+    with CALLS_LOCK:
+        return any(c["state"] in ("active", "dialing", "alerting", "held")
+                   for c in CALLS.values())
+
+
+def blocked_reason(call=False):
+    """Renvoie la raison pour laquelle il ne faut pas parler, ou ""."""
+    if not STATE.get("enabled", True):
+        return "désactivé"
+    if STATE.get("pause_until", 0) > time.time():
+        return "en pause"
+    if in_quiet_hours() and (not call or
+                             CFG.get("calls", {}).get("obey_schedule")):
+        return "plage de silence"
+    if not call and CFG.get("skip_during_call") and in_call():
+        return "appel en cours"
+    if CFG.get("require_headphones", True):
+        out = audio_output()
+        if out == "speaker":
+            return "pas d'écouteurs"
+        if out == "unknown" and not CFG.get("speak_if_output_unknown"):
+            return "sortie audio inconnue"
+    if CFG.get("respect_silent_profile") and silent_profile():
+        return "profil silencieux"
+    return ""
+
+
+def may_speak(call=False):
+    return blocked_reason(call) == ""
+
+
+# ---------------------------------------------------------------------------
+# Notifications
+# ---------------------------------------------------------------------------
+
+SEEN = {}
+SEEN_DIRTY = [False]
+RECENT = {}       # empreinte du texte -> heure, pour éviter les doublons
+RECENT_LOCK = threading.Lock()
+TAG_RE = re.compile(r"<[^>]+>")
+
+
+def clean(s):
+    s = TAG_RE.sub(" ", s or "")
+    s = s.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+    s = s.replace("&quot;", '"').replace("&#39;", "'")
+    # Les liens et les longues suites de symboles ne se lisent pas bien.
+    s = re.sub(r"https?://\S+", " ", s)
+    s = re.sub(r"[☀-➿\U0001F000-\U0001FAFF️]", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def app_setting(app):
+    apps = CFG.get("apps", {})
+    if app in apps:
+        return merge({"read": CFG.get("new_apps_default", False),
+                      "content": "full", "lang": "auto"}, apps[app])
+    return {"read": CFG.get("new_apps_default", False), "content": "full",
+            "lang": "auto"}
+
+
+def remember_app(app, sample, hints):
+    s = SEEN.get(app, {"count": 0})
+    s["count"] = s.get("count", 0) + 1
+    s["last"] = int(time.time())
+    s["sample"] = sample[:80]
+    cat = hints.get("category") if isinstance(hints, dict) else None
+    if cat:
+        s["category"] = str(cat)
+    SEEN[app] = s
+    SEEN_DIRTY[0] = True
+
+
+def on_session_message(head, vals):
+    if head.get("interface") == CONTROL_IFACE:
+        on_control(head.get("member", ""), vals)
+        return
+    if head.get("member") != "Notify" or "method call" not in head["kind"]:
+        return
+    if len(vals) < 7:
+        return
+    app, replaces, _icon, summary, body, _actions, hints = vals[:7]
+    hints = hints if isinstance(hints, dict) else {}
+    app = str(app or "").strip()
+    summary = clean(str(hints.get("x-nemo-preview-summary") or summary or ""))
+    body = clean(str(hints.get("x-nemo-preview-body") or body or ""))
+    dbg("Notify app=%r cat=%r résumé=%r" % (app, hints.get("category", ""),
+                                             summary[:40]))
+    if not app or app in CFG.get("ignored_apps", []):
+        return
+    if not summary and not body:
+        return
+    remember_app(app, (summary + " : " + body).strip(" :"), hints)
+    st = app_setting(app)
+    if not st.get("read"):
+        return
+    key = (app, summary, body)
+    now = time.time()
+    with RECENT_LOCK:
+        for k in [k for k, t in RECENT.items() if now - t > 120]:
+            del RECENT[k]
+        if key in RECENT:
+            dbg("doublon ignoré")
+            return
+        RECENT[key] = now
+    reason = blocked_reason(call=False)
+    if reason:
+        dbg("notification non lue (%s)" % reason)
+        return
+    content = st.get("content", "full")
+    parts = []
+    if CFG.get("announce_app", True) or content == "app":
+        parts.append(app)
+    if content in ("full", "title") and summary and summary != app:
+        parts.append(summary)
+    if content == "full" and body:
+        parts.append(body)
+    text = ". ".join(p.rstrip(".") for p in parts if p)
+    limit = int(CFG.get("max_chars", 300) or 300)
+    if len(text) > limit:
+        text = text[:limit].rsplit(" ", 1)[0] + "…"
+    lang = st.get("lang", "auto")
+    if lang == "auto":
+        default = CFG.get("language", "fr")
+        if CFG.get("detect_language", True):
+            lang = detect_language(summary + " " + body, candidate_langs(),
+                                   default)
+        else:
+            lang = default
+    SPEAKER.say(text, lang=lang, prio=5)
+
+
+def on_control(member, vals):
+    global STATE
+    dbg("commande reçue :", member, vals)
+    st = read_json(STATE_FILE, DEFAULT_STATE)
+    if member == "Enable":
+        st["enabled"], st["pause_until"] = True, 0
+    elif member == "Disable":
+        st["enabled"] = False
+    elif member == "Toggle":
+        st["enabled"] = not st.get("enabled", True)
+        st["pause_until"] = 0
+    elif member == "Pause":
+        minutes = int(vals[0]) if vals else 30
+        st["pause_until"] = int(time.time() + 60 * minutes)
+    elif member == "Resume":
+        st["pause_until"] = 0
+    elif member == "Say":
+        if vals:
+            text = str(vals[0])
+            lang = str(vals[1]) if len(vals) > 1 and vals[1] else None
+            if not lang:
+                lang = detect_language(text, candidate_langs(),
+                                       CFG.get("language", "fr"))
+            SPEAKER.say(text, lang=lang, prio=1, force=True)
+        return
+    elif member == "TestVoice":
+        if vals and vals[0]:
+            key = str(vals[0])
+            lang = voice_lang(key)
+            SPEAKER.say(phrase("test", lang), lang=lang, prio=1, force=True,
+                        voice=key)
+        return
+    elif member == "Test":
+        lang = str(vals[0]) if vals and vals[0] else CFG.get("language", "fr")
+        SPEAKER.say(phrase("test", lang), lang=lang, prio=1, force=True)
+        return
+    else:
+        return
+    write_json(STATE_FILE, st)
+    STATE = st
+
+
+# ---------------------------------------------------------------------------
+# Appels entrants (oFono)
+# ---------------------------------------------------------------------------
+
+_contacts = {"rows": None, "time": 0}
+
+
+def digits(s):
+    return re.sub(r"\D", "", s or "")
+
+
+def contact_rows():
+    """Lit les couples (nom, numéro) du carnet d'adresses de Sailfish.
+
+    Le carnet est réservé aux processus du groupe « privileged ». On essaie
+    d'abord de le lire directement, puis on demande au petit assistant
+    notivox-contacts, installé avec ce droit, d'en faire une copie privée
+    dans ~/.cache/notivox."""
+    now = time.time()
+    if _contacts["rows"] is not None and now - _contacts["time"] < 60:
+        return _contacts["rows"]
+    rows = None
+    q = ("SELECT c.displayLabel, p.phoneNumber FROM PhoneNumbers p "
+         "JOIN Contacts c ON c.contactId = p.contactId")
+    for attempt in ("direct", "assistant"):
+        path = CONTACTS_DB
+        if attempt == "assistant":
+            if not os.path.exists(CONTACTS_HELPER):
+                break
+            try:
+                subprocess.run([CONTACTS_HELPER], timeout=5,
+                               stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL)
+            except Exception:
+                break
+            path = os.path.join(CACHE_DIR, "contacts.db")
+        try:
+            import sqlite3
+            db = sqlite3.connect("file:%s?mode=ro" % path, uri=True,
+                                 timeout=1)
+            try:
+                rows = db.execute(q).fetchall()
+            finally:
+                db.close()
+            dbg("carnet lu (%s) : %d numéros" % (attempt, len(rows)))
+            break
+        except Exception as exc:
+            dbg("carnet illisible (%s) : %s" % (attempt, exc))
+    _contacts["rows"], _contacts["time"] = rows or [], now
+    return _contacts["rows"]
+
+
+def lookup_contact(number):
+    want = digits(number)[-9:]
+    if len(want) < 6:
+        return ""
+    for label, phone in contact_rows():
+        if label and digits(phone)[-9:] == want:
+            return str(label)
+    return ""
+
+
+def announce_call(path):
+    with CALLS_LOCK:
+        c = CALLS.get(path)
+        if not c or c["state"] not in ("incoming", "waiting"):
+            return
+        c["announced"] += 1
+        number, name = c["number"], c["name"]
+    cc = CFG.get("calls", {})
+    if not cc.get("enabled", True):
+        return
+    lang = CFG.get("language", "fr")
+    if not name and number:
+        name = lookup_contact(number)
+        with CALLS_LOCK:
+            if path in CALLS:
+                CALLS[path]["name"] = name
+    if name:
+        text = phrase("call", lang).format(name)
+    elif number and number.lower() not in ("withheld", "unknown",
+                                           "restricted"):
+        if not cc.get("announce_unknown", True):
+            return
+        text = phrase("call_number", lang).format(
+            speakable_number(number, lang))
+    else:
+        if not cc.get("announce_unknown", True):
+            return
+        text = phrase("call_hidden", lang)
+    reason = blocked_reason(call=True)
+    if reason:
+        dbg("appel non annoncé (%s)" % reason)
+        return
+    SPEAKER.say(text, lang=lang, prio=1, props_key="call_props", tag=path)
+
+
+def on_ofono_message(head, vals):
+    member = head.get("member")
+    path = head.get("path", "")
+    if member == "CallAdded" and len(vals) >= 2:
+        cpath, props = vals[0], vals[1] if isinstance(vals[1], dict) else {}
+        state = str(props.get("State", ""))
+        with CALLS_LOCK:
+            CALLS[cpath] = {"state": state,
+                            "number": str(props.get("LineIdentification", "")),
+                            "name": "", "announced": 0,
+                            "since": time.time()}
+        dbg("appel ajouté", cpath, state)
+    elif member == "CallRemoved" and vals:
+        with CALLS_LOCK:
+            CALLS.pop(vals[0], None)
+        SPEAKER.cancel(vals[0])
+        dbg("appel retiré", vals[0])
+    elif member == "PropertyChanged" and len(vals) >= 2 and \
+            head.get("interface") == "org.ofono.VoiceCall":
+        if vals[0] == "State":
+            with CALLS_LOCK:
+                if path in CALLS:
+                    CALLS[path]["state"] = str(vals[1])
+            if str(vals[1]) not in ("incoming", "waiting"):
+                SPEAKER.cancel(path)
+            dbg("état de l'appel", path, vals[1])
+        elif vals[0] == "LineIdentification":
+            with CALLS_LOCK:
+                if path in CALLS:
+                    CALLS[path]["number"] = str(vals[1])
+
+
+# ---------------------------------------------------------------------------
+# Programme principal
+# ---------------------------------------------------------------------------
+
+SPEAKER = None
+
+
+def write_status(pool):
+    out = audio_output()
+    data = {
+        "version": VERSION, "pid": os.getpid(), "time": int(time.time()),
+        "output": out, "blocked": blocked_reason(),
+        "quiet_hours": in_quiet_hours(),
+        "voices": sorted(installed_voices()),
+        "piper": os.path.exists(os.path.join(PIPER_DIR, "piper")),
+        "last_spoken": SPEAKER.last_spoken if SPEAKER else "",
+        "last_error": SPEAKER.last_error if SPEAKER else "",
+    }
+    try:
+        write_json(STATUS_FILE, data)
+    except Exception as exc:
+        dbg("statut non écrit :", exc)
+
+
+def main():
+    global CFG, STATE, SPEAKER, SEEN
+    if "--version" in sys.argv:
+        print(VERSION)
+        return
+    if len(sys.argv) >= 3 and sys.argv[1] == "--play":
+        props = [a.split("=", 1) for a in sys.argv[3:] if "=" in a]
+        sys.exit(play_with_libpulse(sys.argv[2], props))
+    log("démarrage, version", VERSION)
+    for d in (CONF_DIR, VOICE_DIR, CACHE_DIR):
+        os.makedirs(d, exist_ok=True)
+    cfg_w = Watched(CONFIG_FILE, DEFAULT_CONFIG)
+    st_w = Watched(STATE_FILE, DEFAULT_STATE)
+    CFG = cfg_w.load()
+    cfg_w.changed()
+    STATE = st_w.load()
+    st_w.changed()
+    if not os.path.exists(CONFIG_FILE):
+        write_json(CONFIG_FILE, CFG)
+        cfg_w.changed()
+    SEEN = read_json(SEEN_FILE, {})
+
+    pool = PiperPool()
+    SPEAKER = Speaker(pool)
+    SPEAKER.start()
+
+    def stop(*_):
+        pool.stop()
+        if SEEN_DIRTY[0]:
+            write_json(SEEN_FILE, SEEN)
+        os._exit(0)
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    threading.Thread(target=monitor, daemon=True, args=(
+        "session",
+        ["type='method_call',interface='org.freedesktop.Notifications',"
+         "member='Notify'",
+         "type='signal',interface='%s'" % CONTROL_IFACE],
+        on_session_message, "notifications")).start()
+    threading.Thread(target=monitor, daemon=True, args=(
+        OFONO_BUS,
+        ["type='signal',interface='org.ofono.VoiceCallManager'",
+         "type='signal',interface='org.ofono.VoiceCall'"],
+        on_ofono_message, "appels")).start()
+
+    last_status = last_seen = last_clean = 0
+    while True:
+        time.sleep(0.5)
+        now = time.time()
+        if cfg_w.changed():
+            CFG = cfg_w.load()
+            dbg("réglages relus")
+        if st_w.changed():
+            STATE = st_w.load()
+            dbg("état relu :", STATE)
+        with CALLS_LOCK:
+            for c in CALLS.values():
+                c.pop("pending", None)
+        cc = CFG.get("calls", {})
+        first = float(cc.get("first_delay", 1.5))
+        interval = max(2.0, float(cc.get("interval", 6)))
+        repeat = max(1, int(cc.get("repeat", 3)))
+        with CALLS_LOCK:
+            due = [p for p, c in CALLS.items()
+                   if c["state"] in ("incoming", "waiting")
+                   and c.get("sched", 0) < repeat
+                   and now >= c["since"] + first + c.get("sched", 0) *
+                   interval]
+            for p in due:
+                CALLS[p]["sched"] = CALLS[p].get("sched", 0) + 1
+        for p in due:
+            threading.Thread(target=announce_call, args=(p,),
+                             daemon=True).start()
+        if now - last_status > 5:
+            write_status(pool)
+            last_status = now
+        if SEEN_DIRTY[0] and now - last_seen > 10:
+            SEEN_DIRTY[0] = False
+            try:
+                write_json(SEEN_FILE, SEEN)
+            except Exception as exc:
+                log("liste des applications non écrite :", exc)
+            last_seen = now
+        if now - last_clean > 30:
+            pool.cleanup()
+            last_clean = now
+
+
+if __name__ == "__main__":
+    main()

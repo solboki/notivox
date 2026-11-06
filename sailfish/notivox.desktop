@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Notivox
+Name[fr]=Notivox
+Comment=Read notifications and incoming calls aloud in your headphones
+Comment[fr]=Lit les notifications et les appels entrants dans les écouteurs
+Icon=notivox
+Exec=sailfish-qml notivox
+X-Nemo-Application-Type=silica-qt5
+
+[X-Sailjail]
+Sandboxing=Disabled

@@ -1,0 +1,5 @@
+dist/
+rpmbuild/
+vendor/
+build/
+__pycache__/

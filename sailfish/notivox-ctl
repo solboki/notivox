@@ -1,0 +1,103 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+"""Commande Notivox, pour le terminal ou pour l'application Situations.
+
+  notivox-ctl on              active la lecture (et lève une pause)
+  notivox-ctl off             coupe la lecture
+  notivox-ctl toggle          inverse l'état
+  notivox-ctl pause [MIN]     suspend la lecture MIN minutes (30 par défaut)
+  notivox-ctl resume          lève la pause
+  notivox-ctl status          affiche l'état
+  notivox-ctl say TEXTE       lit un texte (service démarré)
+  notivox-ctl test [LANGUE]   lit une phrase d'essai
+
+Les mêmes commandes existent en signaux D-Bus, utiles si Situations ne
+sait envoyer que des messages D-Bus :
+  dbus-send --session --type=signal /org/notivox org.notivox.Control.Disable
+  (Enable, Disable, Toggle, Resume, Pause int32:30, Say string:"texte")
+"""
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import time
+
+CONF_DIR = os.environ.get("NOTIVOX_CONF_DIR",
+                          os.path.expanduser("~/.config/notivox"))
+STATE_FILE = os.path.join(CONF_DIR, "state.json")
+STATUS_FILE = os.path.expanduser("~/.cache/notivox/status.json")
+
+
+def load(path, default):
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+            return d if isinstance(d, dict) else default
+    except Exception:
+        return default
+
+
+def save_state(st):
+    os.makedirs(CONF_DIR, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=CONF_DIR, prefix=".tmp")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(st, f)
+    os.replace(tmp, STATE_FILE)
+
+
+def signal_(member, *args):
+    subprocess.run(["dbus-send", "--session", "--type=signal",
+                    "/org/notivox", "org.notivox.Control." + member]
+                   + list(args), check=False)
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return 0
+    cmd = argv[0]
+    st = load(STATE_FILE, {"enabled": True, "pause_until": 0})
+    if cmd in ("on", "enable"):
+        st["enabled"], st["pause_until"] = True, 0
+    elif cmd in ("off", "disable"):
+        st["enabled"] = False
+    elif cmd == "toggle":
+        st["enabled"] = not st.get("enabled", True)
+        st["pause_until"] = 0
+    elif cmd == "pause":
+        minutes = int(argv[1]) if len(argv) > 1 else 30
+        st["pause_until"] = int(time.time() + 60 * minutes)
+    elif cmd == "resume":
+        st["pause_until"] = 0
+    elif cmd == "say":
+        signal_("Say", "string:" + " ".join(argv[1:]), "string:")
+        return 0
+    elif cmd == "test":
+        signal_("Test", "string:" + (argv[1] if len(argv) > 1 else ""))
+        return 0
+    elif cmd == "status":
+        s = load(STATUS_FILE, {})
+        alive = bool(s) and time.time() - s.get("time", 0) < 20
+        print("lecture   :", "activée" if st.get("enabled", True)
+              else "coupée")
+        if st.get("pause_until", 0) > time.time():
+            print("pause     : jusqu'à",
+                  time.strftime("%H:%M", time.localtime(st["pause_until"])))
+        print("service   :", "en marche" if alive else "arrêté")
+        if alive:
+            print("sortie    :", s.get("output"))
+            print("blocage   :", s.get("blocked") or "aucun")
+            print("voix      :", ", ".join(s.get("voices", [])) or "aucune")
+            if s.get("last_error"):
+                print("erreur    :", s["last_error"])
+        return 0
+    else:
+        print("commande inconnue :", cmd, file=sys.stderr)
+        return 2
+    save_state(st)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
