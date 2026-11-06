@@ -11,6 +11,7 @@
   notivox-ctl say TEXTE       lit un texte (service démarré)
   notivox-ctl test [LANGUE]   lit une phrase d'essai
   notivox-ctl log [N]         affiche les N dernières lignes du journal
+  notivox-ctl contact NUMÉRO  cherche ce numéro dans le carnet d'adresses
 
 Les mêmes commandes existent en signaux D-Bus, utiles si Situations ne
 sait envoyer que des messages D-Bus :
@@ -77,6 +78,9 @@ def main(argv):
     elif cmd == "test":
         signal_("Test", "string:" + (argv[1] if len(argv) > 1 else ""))
         return 0
+    elif cmd == "contact":
+        return subprocess.run(["/usr/bin/python3", "/usr/bin/notivox-daemon",
+                               "--lookup"] + argv[1:2]).returncode
     elif cmd == "log":
         n = int(argv[1]) if len(argv) > 1 else 60
         path = os.path.expanduser("~/.cache/notivox/notivox.log")

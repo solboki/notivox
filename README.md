@@ -20,10 +20,10 @@ Reading can be controlled in four ways: the main switch, a timed pause (15 minut
 
 ## Installing
 
-Copy `notivox-1.0.4-1.aarch64.rpm` to the phone, then in a terminal:
+Copy `notivox-1.0.5-1.aarch64.rpm` to the phone, then in a terminal:
 
 ```
-devel-su pkcon install-local notivox-1.0.4-1.aarch64.rpm
+devel-su pkcon install-local notivox-1.0.5-1.aarch64.rpm
 ```
 
 The package is for 64-bit ARM phones (aarch64) and weighs about 21 MB, most of it being the Piper engine.
@@ -58,7 +58,7 @@ Headphone detection relies on `pactl` (run in English, whatever the phone's lang
 
 The voice is played as a "notification" audio stream, sent by name to the headphones, for notifications and calls alike. (Version 1.0.0 used the ringtone's own stream type for calls, which Sailfish plays on the loudspeaker.) If the voice does not reach the headphones, these stream properties can be changed in the advanced options.
 
-The Sailfish address book is reserved for privileged programs. Notivox ships a tiny helper, `/usr/libexec/notivox/notivox-contacts`, installed with that right, which copies your own address book to `~/.cache/notivox/`, readable by you only, at each incoming call. If it fails, calls are announced with the number.
+If calls are announced with the number instead of the name, `notivox-ctl contact NUMBER` shows how many numbers were read from the address book and the last error. The Sailfish address book is reserved for privileged programs. Notivox ships a tiny helper, `/usr/libexec/notivox/notivox-contacts`, installed with that right, which copies your own address book to `~/.cache/notivox/`, readable by you only, at each incoming call. If it fails, calls are announced with the number.
 
 ## Uninstalling
 

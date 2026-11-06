@@ -30,7 +30,7 @@ import time
 import wave
 from array import array
 
-VERSION = "1.0.4"
+VERSION = "1.0.5"
 
 HOME = os.path.expanduser("~")
 CONF_DIR = os.environ.get("NOTIVOX_CONF_DIR",
@@ -87,7 +87,7 @@ DEFAULT_CONFIG = {
         "enabled": True,
         "repeat": 3,
         "interval": 6,
-        "first_delay": 1.5,
+        "first_delay": 0,
         "announce_unknown": True,
         "obey_schedule": False,
         # Pendant la sonnerie, la plupart des casques Bluetooth ne reçoivent
@@ -561,12 +561,12 @@ def wake_bt_headset():
     if not woke:
         return False
     # La sortie du casque met un instant à réapparaître.
-    for _ in range(16):
+    for _ in range(40):
         sinks = pactl_sinks() or []
         if any(n.startswith("bluez_sink") for n, _p in sinks):
             forget_route()
             return True
-        time.sleep(0.25)
+        time.sleep(0.1)
     forget_route()
     return False
 
@@ -824,11 +824,11 @@ class PiperPool:
             except Exception:
                 pass
 
-    def cleanup(self):
+    def cleanup(self, keep=None):
         with self.lock:
             now = time.time()
             for v in [k for k, e in self.procs.items()
-                      if now - e[1] > self.IDLE]:
+                      if now - e[1] > self.IDLE and k != keep]:
                 dbg("arrêt de Piper inactif :", v)
                 self._kill(v)
 
@@ -1043,6 +1043,52 @@ class Speaker(threading.Thread):
                 self.last_error = str(exc)
                 log("échec de la lecture :", exc)
 
+    def render(self, text, lang, want=None, cache=False):
+        """Fabrique le fichier WAV d'un texte et renvoie (chemin, voix).
+
+        Avec cache, le fichier est gardé : les annonces d'appel sont ainsi
+        prêtes avant même que le casque soit disponible, et instantanées
+        quand la même personne rappelle."""
+        lang = lang or CFG.get("language", "fr")
+        speed = float(CFG.get("speed", 1.0) or 1.0)
+        voice = want if want in installed_voices() else choose_voice(lang)
+        if not voice and lang != CFG.get("language"):
+            if not CFG.get("espeak_fallback"):
+                lang = CFG.get("language", "fr")
+                voice = choose_voice(lang)
+        volume = int(CFG.get("volume", 100))
+        if cache:
+            import hashlib
+            key = hashlib.md5(("%s|%s|%s|%s|%s" % (
+                voice or "espeak-" + lang, speed, volume, VERSION, text)
+            ).encode("utf-8")).hexdigest()
+            d = os.path.join(CACHE_DIR, "calls")
+            os.makedirs(d, exist_ok=True)
+            out = os.path.join(d, key + ".wav")
+            if os.path.exists(out):
+                return out, voice
+            tmp = out + ".tmp.wav"
+        else:
+            with self.lock:
+                self.seq += 1
+                n = self.seq
+            tmp = out = os.path.join(CACHE_DIR, "say-%d-%d.wav" % (
+                os.getpid(), n % 4))
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        if voice:
+            self.pool.synth(voice, text, tmp, speed)
+        elif CFG.get("espeak_fallback", True):
+            espeak_synth(lang, text, tmp, speed)
+        else:
+            raise RuntimeError("aucune voix installée pour « %s »" % lang)
+        apply_volume(tmp, volume)
+        if tmp != out:
+            os.replace(tmp, out)
+        return out, voice
+
     def speak(self, prio, text, lang, props_key, tag, force, want=None):
         if prio < 5:
             forget_route()
@@ -1050,24 +1096,8 @@ class Speaker(threading.Thread):
             dbg("lecture annulée au dernier moment :", text[:60])
             return
         lang = lang or CFG.get("language", "fr")
-        speed = float(CFG.get("speed", 1.0) or 1.0)
-        out = os.path.join(CACHE_DIR, "say-%d.wav" % os.getpid())
-        try:
-            os.unlink(out)
-        except FileNotFoundError:
-            pass
-        voice = want if want in installed_voices() else choose_voice(lang)
-        if not voice and lang != CFG.get("language"):
-            if not CFG.get("espeak_fallback"):
-                lang = CFG.get("language", "fr")
-                voice = choose_voice(lang)
-        if voice:
-            self.pool.synth(voice, text, out, speed)
-        elif CFG.get("espeak_fallback", True):
-            espeak_synth(lang, text, out, speed)
-        else:
-            raise RuntimeError("aucune voix installée pour « %s »" % lang)
-        apply_volume(out, int(CFG.get("volume", 100)))
+        out, voice = self.render(text, lang, want, cache=prio < 5 and
+                                 props_key == "call_props")
         props = parse_props(CFG.get("audio", {}).get(props_key, ""))
         props.append(("media.title", "Notivox"))
         kind, device = audio_route()
@@ -1076,6 +1106,9 @@ class Speaker(threading.Thread):
             raise RuntimeError("aucun lecteur audio (paplay, gst-launch-1.0)")
         dbg("lecture [%s/%s] vers %s : %s" % (lang, voice or "espeak",
                                               device or "défaut", text[:80]))
+        if tag and tag in CALLS:
+            dbg("annonce lancée %.1f s après le début de la sonnerie" %
+                (time.time() - CALLS[tag]["since"]))
         p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                              stderr=subprocess.PIPE, text=True)
         self.current = (prio, p, tag)
@@ -1346,7 +1379,11 @@ def contact_rows():
             path = os.path.join(CACHE_DIR, "contacts.db")
         try:
             import sqlite3
-            db = sqlite3.connect("file:%s?mode=ro" % path, uri=True,
+            # La copie privée s'ouvre normalement : en lecture seule, SQLite
+            # refuse une base en mode WAL dont le fichier -shm manque.
+            uri = ("file:%s?mode=ro" % path) if attempt == "direct" \
+                else ("file:%s" % path)
+            db = sqlite3.connect(uri, uri=True,
                                  timeout=1)
             try:
                 rows = db.execute(q).fetchall()
@@ -1356,6 +1393,7 @@ def contact_rows():
             break
         except Exception as exc:
             dbg("carnet illisible (%s) : %s" % (attempt, exc))
+            _contacts["error"] = "%s : %s" % (attempt, exc)
     _contacts["rows"], _contacts["time"] = rows or [], now
     return _contacts["rows"]
 
@@ -1370,34 +1408,65 @@ def lookup_contact(number):
     return ""
 
 
+def call_text(path):
+    """Phrase d'annonce d'un appel, ou "" s'il ne faut rien dire."""
+    with CALLS_LOCK:
+        c = CALLS.get(path)
+        if not c:
+            return ""
+        if c.get("text") is not None:
+            return c["text"]
+        number, name = c["number"], c["name"]
+    cc = CFG.get("calls", {})
+    lang = CFG.get("language", "fr")
+    if not name and number:
+        name = lookup_contact(number)
+        if not name:
+            dbg("numéro absent du carnet ou carnet illisible :",
+                _contacts.get("error") or "%d numéros lus" %
+                len(_contacts["rows"] or []))
+    text = ""
+    if name:
+        text = phrase("call", lang).format(name)
+    elif number and number.lower() not in ("withheld", "unknown",
+                                           "restricted"):
+        if cc.get("announce_unknown", True):
+            text = phrase("call_number", lang).format(
+                speakable_number(number, lang))
+    elif cc.get("announce_unknown", True):
+        text = phrase("call_hidden", lang)
+    with CALLS_LOCK:
+        if path in CALLS:
+            CALLS[path]["name"] = name
+            CALLS[path]["text"] = text
+    return text
+
+
+def prepare_call(path):
+    """Dès l'arrivée de l'appel : cherche le nom et fabrique le son, pendant
+    que le système éteint puis que l'on rallume le casque."""
+    try:
+        text = call_text(path)
+        if text and CFG.get("calls", {}).get("enabled", True):
+            SPEAKER.render(text, CFG.get("language", "fr"), cache=True)
+            dbg("annonce prête : %s" % text)
+    except Exception as exc:
+        log("préparation de l'annonce impossible :", exc)
+
+
 def announce_call(path):
     with CALLS_LOCK:
         c = CALLS.get(path)
         if not c or c["state"] not in ("incoming", "waiting"):
             return
         c["announced"] += 1
-        number, name = c["number"], c["name"]
     cc = CFG.get("calls", {})
     if not cc.get("enabled", True):
         return
     lang = CFG.get("language", "fr")
-    if not name and number:
-        name = lookup_contact(number)
-        with CALLS_LOCK:
-            if path in CALLS:
-                CALLS[path]["name"] = name
-    if name:
-        text = phrase("call", lang).format(name)
-    elif number and number.lower() not in ("withheld", "unknown",
-                                           "restricted"):
-        if not cc.get("announce_unknown", True):
-            return
-        text = phrase("call_number", lang).format(
-            speakable_number(number, lang))
-    else:
-        if not cc.get("announce_unknown", True):
-            return
-        text = phrase("call_hidden", lang)
+    text = call_text(path)
+    if not text:
+        return
     forget_route()
     # Casque Bluetooth éteint par la sonnerie : on le rallume, mais jamais
     # pendant une conversation déjà en cours (double appel).
@@ -1409,8 +1478,8 @@ def announce_call(path):
             age = time.time() - CALLS.get(path, {}).get("since", 0)
         if age < 6 and any(n.startswith("bluez_card") and a == "a2dp_sink"
                            for n, a, _p in pactl_cards()):
-            for _ in range(16):
-                time.sleep(0.25)
+            for _ in range(30):
+                time.sleep(0.1)
                 if not any(n.startswith("bluez_card") and a == "a2dp_sink"
                            for n, a, _p in pactl_cards()):
                     break
@@ -1435,9 +1504,12 @@ def on_ofono_message(head, vals):
         with CALLS_LOCK:
             CALLS[cpath] = {"state": state,
                             "number": str(props.get("LineIdentification", "")),
-                            "name": "", "announced": 0,
+                            "name": "", "announced": 0, "text": None,
                             "since": time.time()}
         dbg("appel ajouté", cpath, state)
+        if state in ("incoming", "waiting"):
+            threading.Thread(target=prepare_call, args=(cpath,),
+                             daemon=True).start()
     elif member == "CallRemoved" and vals:
         with CALLS_LOCK:
             CALLS.pop(vals[0], None)
@@ -1456,6 +1528,7 @@ def on_ofono_message(head, vals):
             with CALLS_LOCK:
                 if path in CALLS:
                     CALLS[path]["number"] = str(vals[1])
+                    CALLS[path]["text"] = None
 
 
 # ---------------------------------------------------------------------------
@@ -1491,6 +1564,11 @@ def migrate(cfg):
     if audio.get("call_props") == "media.name=notiftone":
         audio["call_props"] = DEFAULT_CONFIG["audio"]["call_props"]
         changed = True
+    # 1.0.5 : plus d'attente fixe avant la première annonce d'appel.
+    calls = cfg.setdefault("calls", {})
+    if calls.get("first_delay") == 1.5:
+        calls["first_delay"] = 0
+        changed = True
     return changed
 
 
@@ -1498,6 +1576,16 @@ def main():
     global CFG, STATE, SPEAKER, SEEN
     if "--version" in sys.argv:
         print(VERSION)
+        return
+    if len(sys.argv) >= 3 and sys.argv[1] == "--lookup":
+        CFG = read_json(CONFIG_FILE, DEFAULT_CONFIG)
+        CFG["debug"] = True
+        name = lookup_contact(sys.argv[2])
+        rows = _contacts["rows"] or []
+        print("numéros lus dans le carnet :", len(rows))
+        if _contacts.get("error"):
+            print("dernière erreur :", _contacts["error"])
+        print("nom trouvé :", name or "(aucun)")
         return
     if len(sys.argv) >= 3 and sys.argv[1] == "--play":
         device = None
@@ -1588,7 +1676,9 @@ def main():
                 log("liste des applications non écrite :", exc)
             last_seen = now
         if now - last_clean > 30:
-            pool.cleanup()
+            # La voix de la langue principale reste chargée : une annonce
+            # d'appel n'attend pas le chargement du modèle.
+            pool.cleanup(keep=choose_voice(CFG.get("language", "fr")))
             last_clean = now
 
 

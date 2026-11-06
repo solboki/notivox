@@ -152,9 +152,9 @@ plays "aucune lecture" 0
 
 echo "== appels"
 run call '{"new_apps_default": true, "debug": true, "calls": {"repeat": 2, "interval": 4, "first_delay": 1}}' 6
-check "nom du contact trouvé" "Appel de Jean Dupont" 2
+check "nom du contact trouvé" "] vers défaut : Appel de Jean Dupont" 2
 check "notification ignorée pendant l'appel" "appel en cours"
-check "appel masqué annoncé" "Appel masqué"
+check "appel masqué annoncé" "] vers défaut : Appel masqué"
 plays "trois annonces d'appel" 3
 
 echo "== commandes (Situations)"

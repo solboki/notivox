@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.5 (2026-11-06)
+
+- Faster call announcements. The caller is looked up and the sentence synthesised as soon as the call arrives, while the headset is being woken. The main language's voice stays loaded, so no time is lost loading the model. The fixed delay before the first announcement is removed (settings saved by earlier versions are updated). Sentences already spoken for a caller are kept, so a repeated call is announced at once.
+- New `notivox-ctl contact NUMBER` command, to check why a caller's name is not found in the address book.
+
 ## 1.0.4 (2026-11-06)
 
 - Incoming calls are now announced in Bluetooth headsets. While the phone rings, Sailfish sets the headset's audio profile to "off" and opens nothing else until the call is answered. Notivox switches the headset back to its music profile (A2DP) for the announcement; when you answer, the system moves it to the call profile by itself, as before. This can be turned off in the Incoming calls page.

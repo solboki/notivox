@@ -1,5 +1,5 @@
 Name:       notivox
-Version:    1.0.4
+Version:    1.0.5
 Release:    1
 Summary:    Reads notifications and incoming calls aloud in your headphones
 License:    GPL-3.0-or-later
@@ -84,6 +84,11 @@ systemctl-user daemon-reload >/dev/null 2>&1 || :
 %{_datadir}/icons/hicolor/*/apps/notivox.png
 
 %changelog
+* Fri Nov 06 2026 Boris Solodki <solboki@solodki.fr> - 1.0.5-1
+- Faster call announcements: the caller is looked up and the sentence is
+  synthesised as soon as the call arrives, the main voice stays loaded,
+  no fixed delay before the first announcement, finer headset polling.
+- "notivox-ctl contact NUMBER" to diagnose address-book lookups.
 * Fri Nov 06 2026 Boris Solodki <solboki@solodki.fr> - 1.0.4-1
 - Incoming calls are now announced in Bluetooth headsets: the headset
   sound, switched off by Sailfish while ringing, is switched back on for

@@ -76,7 +76,7 @@ Page {
                 width: parent.width
                 label: app.t("Délai avant la première annonce", "Delay before the first announcement")
                 minimumValue: 0; maximumValue: 5; stepSize: 0.5
-                value: app.get(["calls", "first_delay"], 1.5)
+                value: app.get(["calls", "first_delay"], 0)
                 valueText: value.toFixed(1) + " s"
                 onReleased: app.setCfg(["calls", "first_delay"], value)
             }
