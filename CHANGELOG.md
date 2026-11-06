@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.4 (2026-11-06)
+
+- Incoming calls are now announced in Bluetooth headsets. While the phone rings, Sailfish sets the headset's audio profile to "off" and opens nothing else until the call is answered. Notivox switches the headset back to its music profile (A2DP) for the announcement; when you answer, the system moves it to the call profile by itself, as before. This can be turned off in the Incoming calls page.
+
 ## 1.0.3 (2026-11-06)
 
 - Fixed: calls were announced on the loudspeaker. While the phone rings, Sailfish switches a Bluetooth headset to its call mode, whose audio only opens when the call is answered: the headset is still connected but receives no sound, and everything plays on the loudspeaker. Notivox now trusts only the audio outputs that actually exist, and stays silent in that case.

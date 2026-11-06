@@ -30,7 +30,7 @@ import time
 import wave
 from array import array
 
-VERSION = "1.0.3"
+VERSION = "1.0.4"
 
 HOME = os.path.expanduser("~")
 CONF_DIR = os.environ.get("NOTIVOX_CONF_DIR",
@@ -93,6 +93,9 @@ DEFAULT_CONFIG = {
         # Pendant la sonnerie, la plupart des casques Bluetooth ne reçoivent
         # aucun son : faut-il alors annoncer sur le haut-parleur ?
         "speaker_fallback": False,
+        # Rallumer le son du casque Bluetooth, coupé par la sonnerie, le
+        # temps de l'annonce
+        "bt_wakeup": True,
     },
     "schedule": {
         "enabled": False,
@@ -510,6 +513,62 @@ def audio_route():
     res = res or "unknown"
     _output_cache = (now, res, sink)
     return res, sink
+
+
+def pactl_cards():
+    """[(nom, profil actif, profils disponibles)] des cartes son."""
+    if not shutil.which("pactl"):
+        return []
+    env = dict(os.environ, LC_ALL="C", LANG="C")
+    try:
+        out = subprocess.run(["pactl", "list", "cards"], capture_output=True,
+                             text=True, timeout=4, env=env).stdout
+    except Exception:
+        return []
+    cards = []
+    for block in re.split(r"\n(?=Card #)", out):
+        name = re.search(r"^\s*Name:\s*(\S+)", block, re.M)
+        active = re.search(r"^\s*Active Profile:\s*(\S+)", block, re.M)
+        profiles = set(re.findall(r"^\s+([\w-]+): .*\(sinks:", block, re.M))
+        if name:
+            cards.append((name.group(1), active.group(1) if active else "",
+                          profiles))
+    return cards
+
+
+def wake_bt_headset():
+    """Pendant la sonnerie d'un appel, Sailfish éteint le son du casque
+    Bluetooth (profil « off ») sans rien ouvrir d'autre avant le décroché.
+    On le remet en mode musique (A2DP) le temps de l'annonce ; au décroché,
+    le système le passe de lui-même en mode conversation.
+
+    Renvoie True si la sortie musique du casque est de nouveau disponible."""
+    woke = False
+    for name, active, profiles in pactl_cards():
+        if not name.startswith("bluez_card") or active != "off" or \
+                "a2dp_sink" not in profiles:
+            continue
+        try:
+            r = subprocess.run(["pactl", "set-card-profile", name,
+                                "a2dp_sink"], timeout=4,
+                               stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL)
+        except Exception as exc:
+            dbg("bascule du casque impossible :", exc)
+            continue
+        dbg("casque %s remis en mode musique (code %d)" % (name, r.returncode))
+        woke = woke or r.returncode == 0
+    if not woke:
+        return False
+    # La sortie du casque met un instant à réapparaître.
+    for _ in range(16):
+        sinks = pactl_sinks() or []
+        if any(n.startswith("bluez_sink") for n, _p in sinks):
+            forget_route()
+            return True
+        time.sleep(0.25)
+    forget_route()
+    return False
 
 
 def forget_route():
@@ -1340,6 +1399,26 @@ def announce_call(path):
             return
         text = phrase("call_hidden", lang)
     forget_route()
+    # Casque Bluetooth éteint par la sonnerie : on le rallume, mais jamais
+    # pendant une conversation déjà en cours (double appel).
+    if cc.get("bt_wakeup", True) and not in_call():
+        # En début de sonnerie, le système n'a peut-être pas encore éteint
+        # le casque : une annonce lancée trop tôt serait coupée en route et
+        # finirait sur le haut-parleur. On attend donc cette coupure.
+        with CALLS_LOCK:
+            age = time.time() - CALLS.get(path, {}).get("since", 0)
+        if age < 6 and any(n.startswith("bluez_card") and a == "a2dp_sink"
+                           for n, a, _p in pactl_cards()):
+            for _ in range(16):
+                time.sleep(0.25)
+                if not any(n.startswith("bluez_card") and a == "a2dp_sink"
+                           for n, a, _p in pactl_cards()):
+                    break
+            forget_route()
+    if cc.get("bt_wakeup", True) and not in_call() and \
+            audio_output() == "speaker":
+        if wake_bt_headset():
+            dbg("casque Bluetooth rallumé pour l'annonce")
     reason = blocked_reason(call=True)
     if reason:
         dbg("appel non annoncé (%s)" % reason)

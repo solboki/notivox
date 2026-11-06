@@ -101,6 +101,40 @@ if [ "$R" = "('speaker', 'sink.primary_output')" ]; then
     echo "ok    pendant la sonnerie : casque connecté mais muet, donc haut-parleur"
 else echo "ÉCHEC casque connecté sans sortie son : $R"; FAIL=1; fi
 
+echo "== casque Bluetooth éteint par la sonnerie"
+BT=$(mktemp -d); echo off > "$BT/profile"
+cat > "$BT/pactl" <<P
+#!/bin/sh
+ST=$BT/profile
+P
+cat >> "$BT/pactl" <<'P'
+case "$1 $2" in
+  "set-card-profile bluez_card.68_F2_1F_78_1C_19") echo "$3" > "$ST"; exit 0 ;;
+  "list cards")
+    printf 'Card #0\n\tName: droid_card.primary\n\tActive Profile: default\n'
+    printf 'Card #1\n\tName: bluez_card.68_F2_1F_78_1C_19\n\tProfiles:\n'
+    printf '\t\ta2dp_sink: High Fidelity Playback (A2DP Sink) (sinks: 1, sources: 0, priority: 40, available: yes)\n'
+    printf '\t\thandsfree_head_unit: Handsfree Head Unit (HFP) (sinks: 1, sources: 1, priority: 30, available: yes)\n'
+    printf '\t\toff: Off (sinks: 0, sources: 0, priority: 0, available: yes)\n'
+    printf '\tActive Profile: %s\n' "$(cat "$ST")" ;;
+  "list sinks")
+    printf 'Sink #0\n\tName: sink.primary_output\n\tActive Port: output-speaker\n'
+    [ "$(cat "$ST")" = a2dp_sink ] && printf 'Sink #9\n\tName: bluez_sink.68_F2_1F_78_1C_19.a2dp_sink\n\tActive Port: headset-output\n'
+    exit 0 ;;
+esac
+P
+chmod +x "$BT/pactl"
+R=$(PATH="$BT:$PATH" NOTIVOX_CACHE_DIR="$BT" python3 -c "
+from importlib.machinery import SourceFileLoader
+m = SourceFileLoader('d', '$DAEMON').load_module()
+m.output_from_bluez = lambda: 'bluetooth'
+before = m.audio_route()
+ok = m.wake_bt_headset()
+print(before, ok, m.audio_route())")
+if [ "$R" = "('speaker', 'sink.primary_output') True ('bluetooth', 'bluez_sink.68_F2_1F_78_1C_19.a2dp_sink')" ]; then
+    echo "ok    casque rallumé en mode musique, annonce envoyée au casque"
+else echo "ÉCHEC réveil du casque : $R"; FAIL=1; fi
+
 echo "== notifications"
 run notif '{"new_apps_default": true, "apps": {"Météo": {"read": false}}, "debug": true}' 12
 check "guillemets et retour à la ligne" 'Salut, on dit "midi" ou "13h" demain ?'
