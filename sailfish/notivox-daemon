@@ -30,7 +30,7 @@ import time
 import wave
 from array import array
 
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 
 HOME = os.path.expanduser("~")
 CONF_DIR = os.environ.get("NOTIVOX_CONF_DIR",
@@ -90,6 +90,9 @@ DEFAULT_CONFIG = {
         "first_delay": 1.5,
         "announce_unknown": True,
         "obey_schedule": False,
+        # Pendant la sonnerie, la plupart des casques Bluetooth ne reçoivent
+        # aucun son : faut-il alors annoncer sur le haut-parleur ?
+        "speaker_fallback": False,
     },
     "schedule": {
         "enabled": False,
@@ -498,13 +501,21 @@ def audio_route():
     else:
         r = output_from_pactl()
         res, sink = r if r else (None, None)
-        if res in (None, "speaker"):
-            bt = output_from_bluez()
-            if bt == "bluetooth" or res is None:
-                res = bt
+        # BlueZ ne sert qu'en l'absence de pactl : il dit seulement qu'un
+        # casque est connecté, pas qu'il peut recevoir du son. Pendant la
+        # sonnerie d'un appel, le casque est connecté mais sa sortie son a
+        # disparu, et le système joue tout sur le haut-parleur.
+        if res is None:
+            res = output_from_bluez()
     res = res or "unknown"
     _output_cache = (now, res, sink)
     return res, sink
+
+
+def forget_route():
+    """Oublie la sortie mémorisée : au début d'une sonnerie, elle change."""
+    global _output_cache
+    _output_cache = (0.0, "unknown", None)
 
 
 def silent_profile():
@@ -974,6 +985,8 @@ class Speaker(threading.Thread):
                 log("échec de la lecture :", exc)
 
     def speak(self, prio, text, lang, props_key, tag, force, want=None):
+        if prio < 5:
+            forget_route()
         if not force and not may_speak(call=prio < 5):
             dbg("lecture annulée au dernier moment :", text[:60])
             return
@@ -1079,7 +1092,8 @@ def blocked_reason(call=False):
         return "appel en cours"
     if CFG.get("require_headphones", True):
         out = audio_output()
-        if out == "speaker":
+        if out == "speaker" and not (
+                call and CFG.get("calls", {}).get("speaker_fallback")):
             return "pas d'écouteurs"
         if out == "unknown" and not CFG.get("speak_if_output_unknown"):
             return "sortie audio inconnue"
@@ -1325,6 +1339,7 @@ def announce_call(path):
         if not cc.get("announce_unknown", True):
             return
         text = phrase("call_hidden", lang)
+    forget_route()
     reason = blocked_reason(call=True)
     if reason:
         dbg("appel non annoncé (%s)" % reason)

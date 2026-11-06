@@ -10,6 +10,8 @@ The service listens to every notification posted on the phone, native or from An
 
 For an incoming call, Notivox says the contact's name, or the number if it is not in your contacts, a few times while the phone rings. The announcements stop as soon as you answer or decline.
 
+With a Bluetooth headset, there is a system limit: while the phone rings, Sailfish switches the headset to its call mode, whose audio only opens once you answer. During the ringing nothing can be played in the headset, not even the ringtone. Notivox then stays silent, unless you allow it to use the loudspeaker in the Incoming calls page. Wired headphones are not affected.
+
 By default nothing is ever spoken on the phone's loudspeaker. Notivox only talks when Bluetooth or wired headphones are in use.
 
 Each message is read by a voice in its own language when one is installed: a message in English is read by an English voice, a message in French by a French voice. Voices are downloaded from the app, from the public Piper voice repository, in more than fifty languages. For a language without a Piper voice, the much more robotic but very wide eSpeak NG voice can step in.
@@ -18,10 +20,10 @@ Reading can be controlled in four ways: the main switch, a timed pause (15 minut
 
 ## Installing
 
-Copy `notivox-1.0.2-1.aarch64.rpm` to the phone, then in a terminal:
+Copy `notivox-1.0.3-1.aarch64.rpm` to the phone, then in a terminal:
 
 ```
-devel-su pkcon install-local notivox-1.0.2-1.aarch64.rpm
+devel-su pkcon install-local notivox-1.0.3-1.aarch64.rpm
 ```
 
 The package is for 64-bit ARM phones (aarch64) and weighs about 21 MB, most of it being the Piper engine.

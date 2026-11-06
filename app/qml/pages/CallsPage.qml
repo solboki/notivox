@@ -30,6 +30,15 @@ Page {
             }
 
             TextSwitch {
+                text: app.t("Haut-parleur si le casque est muet", "Speaker if the headset is silent")
+                description: app.t("Pendant la sonnerie, la plupart des casques Bluetooth ne reçoivent aucun son. Sans cette option, l'appel n'est alors pas annoncé ; avec elle, le nom est dit sur le haut-parleur, audible par votre entourage.",
+                                   "While ringing, most Bluetooth headsets receive no sound. Without this option the call is then not announced; with it, the name is spoken on the loudspeaker, audible to people around you.")
+                checked: app.get(["calls", "speaker_fallback"], false)
+                automaticCheck: false
+                onClicked: app.setCfg(["calls", "speaker_fallback"], !checked)
+            }
+
+            TextSwitch {
                 text: app.t("Respecter les plages de silence", "Obey quiet hours")
                 description: app.t("Si cette option est coupée, les appels sont annoncés même la nuit.",
                                    "When off, calls are announced even during quiet hours.")
@@ -69,8 +78,8 @@ Page {
                 wrapMode: Text.Wrap
                 font.pixelSize: Theme.fontSizeExtraSmall
                 color: Theme.secondaryHighlightColor
-                text: app.t("Les annonces s'arrêtent dès que vous décrochez ou refusez l'appel. Comme les notifications, elles ne passent que par les écouteurs si cette option est active.",
-                            "Announcements stop as soon as you answer or decline. Like notifications, they only go to headphones when that option is on.")
+                text: app.t("Les annonces s'arrêtent dès que vous décrochez ou refusez l'appel. Avec des écouteurs filaires, elles arrivent dans les écouteurs. Avec un casque Bluetooth, le téléphone coupe le casque pendant la sonnerie et ne le rouvre qu'au décroché : c'est une règle du système, que Notivox ne peut pas contourner.",
+                            "Announcements stop as soon as you answer or decline. With wired headphones they reach the headphones. With a Bluetooth headset the phone cuts the headset while ringing and only reopens it when you answer: this is a system rule Notivox cannot get around.")
             }
         }
         VerticalScrollDecorator { }

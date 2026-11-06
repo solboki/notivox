@@ -1,5 +1,5 @@
 Name:       notivox
-Version:    1.0.2
+Version:    1.0.3
 Release:    1
 Summary:    Reads notifications and incoming calls aloud in your headphones
 License:    GPL-3.0-or-later
@@ -84,6 +84,10 @@ systemctl-user daemon-reload >/dev/null 2>&1 || :
 %{_datadir}/icons/hicolor/*/apps/notivox.png
 
 %changelog
+* Fri Nov 06 2026 Boris Solodki <solboki@solodki.fr> - 1.0.3-1
+- Fix: calls were announced on the loudspeaker while a Bluetooth headset
+  was connected but silent (the phone switches it off while ringing).
+- New call option: announce on the loudspeaker when the headset is silent.
 * Fri Nov 06 2026 Boris Solodki <solboki@solodki.fr> - 1.0.2-1
 - Fix: incoming calls were announced on the loudspeaker instead of the
   headphones; existing settings are updated automatically.

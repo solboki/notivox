@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.3 (2026-11-06)
+
+- Fixed: calls were announced on the loudspeaker. While the phone rings, Sailfish switches a Bluetooth headset to its call mode, whose audio only opens when the call is answered: the headset is still connected but receives no sound, and everything plays on the loudspeaker. Notivox now trusts only the audio outputs that actually exist, and stays silent in that case.
+- New option in the Incoming calls page: announce on the loudspeaker when the headset cannot receive sound (off by default).
+
 ## 1.0.2 (2026-11-06)
 
 - Fixed: incoming calls were announced on the phone's loudspeaker instead of the headphones. The call announcement used the ringtone's stream type, which Sailfish always plays on the loudspeaker; it now uses the same stream as notifications. Settings saved by earlier versions are updated automatically.

@@ -92,6 +92,15 @@ if [ "$R" = "('speaker', 'sink.primary_output')" ]; then
     echo "ok    sans casque : haut-parleur, jamais sink.null"
 else echo "ÉCHEC sortie sans casque : $R"; FAIL=1; fi
 
+R=$(PATH="$FAKE:$PATH" NOTIVOX_CACHE_DIR="$FAKE" python3 -c "
+from importlib.machinery import SourceFileLoader
+m = SourceFileLoader('d', '$DAEMON').load_module()
+m.output_from_bluez = lambda: 'bluetooth'
+print(m.audio_route())")
+if [ "$R" = "('speaker', 'sink.primary_output')" ]; then
+    echo "ok    pendant la sonnerie : casque connecté mais muet, donc haut-parleur"
+else echo "ÉCHEC casque connecté sans sortie son : $R"; FAIL=1; fi
+
 echo "== notifications"
 run notif '{"new_apps_default": true, "apps": {"Météo": {"read": false}}, "debug": true}' 12
 check "guillemets et retour à la ligne" 'Salut, on dit "midi" ou "13h" demain ?'
