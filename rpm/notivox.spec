@@ -1,5 +1,5 @@
 Name:       notivox
-Version:    1.0.5
+Version:    1.0.6
 Release:    1
 Summary:    Reads notifications and incoming calls aloud in your headphones
 License:    GPL-3.0-or-later
@@ -84,6 +84,10 @@ systemctl-user daemon-reload >/dev/null 2>&1 || :
 %{_datadir}/icons/hicolor/*/apps/notivox.png
 
 %changelog
+* Fri Nov 06 2026 Boris Solodki <solboki@solodki.fr> - 1.0.6-1
+- Fix: the caller's name was never found on recent Sailfish versions,
+  whose address book no longer stores the display name in the Contacts
+  table. The name is now looked up wherever it is stored.
 * Fri Nov 06 2026 Boris Solodki <solboki@solodki.fr> - 1.0.5-1
 - Faster call announcements: the caller is looked up and the sentence is
   synthesised as soon as the call arrives, the main voice stays loaded,

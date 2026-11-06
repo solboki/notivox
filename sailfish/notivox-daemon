@@ -30,7 +30,7 @@ import time
 import wave
 from array import array
 
-VERSION = "1.0.5"
+VERSION = "1.0.6"
 
 HOME = os.path.expanduser("~")
 CONF_DIR = os.environ.get("NOTIVOX_CONF_DIR",
@@ -1352,6 +1352,70 @@ def digits(s):
     return re.sub(r"\D", "", s or "")
 
 
+def _columns(db, table):
+    try:
+        return [r[1] for r in db.execute("PRAGMA table_info(%s)" % table)]
+    except Exception:
+        return []
+
+
+def contacts_schema(db):
+    """Résumé lisible de la structure du carnet, pour le diagnostic."""
+    tables = [r[0] for r in db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
+    return {t: _columns(db, t) for t in tables
+            if t in ("Contacts", "PhoneNumbers", "DisplayLabels", "Names",
+                     "Nicknames", "Organizations")}
+
+
+def read_contact_rows(db):
+    """(nom, numéro) pour chaque numéro du carnet.
+
+    La structure de la base qtcontacts-sqlite a changé selon les versions
+    de Sailfish : le nom affiché a quitté la table Contacts. On cherche
+    donc le nom là où il se trouve, du plus au moins précis : nom affiché,
+    prénom et nom, surnom, organisation."""
+    phone = _columns(db, "PhoneNumbers")
+    if "phoneNumber" not in phone or "contactId" not in phone:
+        raise RuntimeError("table PhoneNumbers inattendue : %s" % phone)
+    names = {}
+
+    def fill(sql):
+        try:
+            for cid, label in db.execute(sql):
+                label = " ".join(str(label or "").split())
+                if label and cid not in names:
+                    names[cid] = label
+        except Exception as exc:
+            dbg("lecture partielle du carnet :", exc)
+
+    if "displayLabel" in _columns(db, "Contacts"):
+        fill("SELECT contactId, displayLabel FROM Contacts")
+    if "displayLabel" in _columns(db, "DisplayLabels"):
+        fill("SELECT contactId, displayLabel FROM DisplayLabels")
+    nc = _columns(db, "Names")
+    if "contactId" in nc:
+        parts = [c for c in ("prefix", "firstName", "middleName", "lastName",
+                             "suffix") if c in nc]
+        if parts:
+            expr = " || ' ' || ".join("COALESCE(%s, '')" % c for c in parts)
+            fill("SELECT contactId, %s FROM Names" % expr)
+        if "customLabel" in nc:
+            fill("SELECT contactId, customLabel FROM Names")
+    if "nickname" in _columns(db, "Nicknames"):
+        fill("SELECT contactId, nickname FROM Nicknames")
+    if "name" in _columns(db, "Organizations"):
+        fill("SELECT contactId, name FROM Organizations")
+    out = []
+    for cid, number in db.execute(
+            "SELECT contactId, phoneNumber FROM PhoneNumbers"):
+        if cid in names and number:
+            out.append((names[cid], str(number)))
+    if not out:
+        dbg("structure du carnet :", contacts_schema(db))
+    return out
+
+
 def contact_rows():
     """Lit les couples (nom, numéro) du carnet d'adresses de Sailfish.
 
@@ -1363,8 +1427,6 @@ def contact_rows():
     if _contacts["rows"] is not None and now - _contacts["time"] < 60:
         return _contacts["rows"]
     rows = None
-    q = ("SELECT c.displayLabel, p.phoneNumber FROM PhoneNumbers p "
-         "JOIN Contacts c ON c.contactId = p.contactId")
     for attempt in ("direct", "assistant"):
         path = CONTACTS_DB
         if attempt == "assistant":
@@ -1386,7 +1448,7 @@ def contact_rows():
             db = sqlite3.connect(uri, uri=True,
                                  timeout=1)
             try:
-                rows = db.execute(q).fetchall()
+                rows = read_contact_rows(db)
             finally:
                 db.close()
             dbg("carnet lu (%s) : %d numéros" % (attempt, len(rows)))
@@ -1586,6 +1648,15 @@ def main():
         if _contacts.get("error"):
             print("dernière erreur :", _contacts["error"])
         print("nom trouvé :", name or "(aucun)")
+        if not name:
+            try:
+                import sqlite3
+                db = sqlite3.connect(os.path.join(CACHE_DIR, "contacts.db"))
+                for t, cols in contacts_schema(db).items():
+                    print("  %s : %s" % (t, ", ".join(cols)))
+                db.close()
+            except Exception as exc:
+                print("structure illisible :", exc)
         return
     if len(sys.argv) >= 3 and sys.argv[1] == "--play":
         device = None
@@ -1612,6 +1683,12 @@ def main():
         write_json(CONFIG_FILE, CFG)
         cfg_w.changed()
     SEEN = read_json(SEEN_FILE, {})
+    for name in os.listdir(CACHE_DIR):
+        if name.startswith("say-") and name.endswith(".wav"):
+            try:
+                os.unlink(os.path.join(CACHE_DIR, name))
+            except OSError:
+                pass
 
     pool = PiperPool()
     SPEAKER = Speaker(pool)

@@ -20,10 +20,10 @@ Reading can be controlled in four ways: the main switch, a timed pause (15 minut
 
 ## Installing
 
-Copy `notivox-1.0.5-1.aarch64.rpm` to the phone, then in a terminal:
+Copy `notivox-1.0.6-1.aarch64.rpm` to the phone, then in a terminal:
 
 ```
-devel-su pkcon install-local notivox-1.0.5-1.aarch64.rpm
+devel-su pkcon install-local notivox-1.0.6-1.aarch64.rpm
 ```
 
 The package is for 64-bit ARM phones (aarch64) and weighs about 21 MB, most of it being the Piper engine.

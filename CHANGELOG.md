@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.6 (2026-11-06)
+
+- Fixed: on recent Sailfish versions, calls were announced with the number instead of the caller's name. The address book no longer stores the display name in its `Contacts` table; Notivox now looks for it, in order, in the display labels, the first and last names, the nickname and the organisation.
+- Leftover temporary sound files are removed when the service starts.
+
 ## 1.0.5 (2026-11-06)
 
 - Faster call announcements. The caller is looked up and the sentence synthesised as soon as the call arrives, while the headset is being woken. The main language's voice stays loaded, so no time is lost loading the model. The fixed delay before the first announcement is removed (settings saved by earlier versions are updated). Sentences already spoken for a caller are kept, so a repeated call is announced at once.
