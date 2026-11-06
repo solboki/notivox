@@ -81,7 +81,7 @@ Page {
             TextField {
                 width: parent.width
                 label: app.t("Propriétés du flux des appels", "Call stream properties")
-                text: app.get(["audio", "call_props"], "media.name=notiftone")
+                text: app.get(["audio", "call_props"], "media.role=notification")
                 EnterKey.iconSource: "image://theme/icon-m-enter-close"
                 EnterKey.onClicked: { app.setCfg(["audio", "call_props"], text); focus = false }
             }

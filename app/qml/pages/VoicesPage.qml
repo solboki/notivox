@@ -87,6 +87,31 @@ Page {
 
             SectionHeader { text: app.t("Voix installées", "Installed voices") }
 
+            BackgroundItem {
+                width: parent.width
+                height: Theme.itemSizeMedium
+                onClicked: pageStack.push(Qt.resolvedUrl("LanguagesPage.qml"))
+                Icon {
+                    id: dlIcon
+                    x: Theme.horizontalPageMargin
+                    anchors.verticalCenter: parent.verticalCenter
+                    source: "image://theme/icon-m-add"
+                    highlighted: parent.highlighted
+                }
+                Label {
+                    anchors {
+                        left: dlIcon.right
+                        leftMargin: Theme.paddingMedium
+                        right: parent.right
+                        rightMargin: Theme.horizontalPageMargin
+                        verticalCenter: parent.verticalCenter
+                    }
+                    truncationMode: TruncationMode.Fade
+                    text: app.t("Télécharger une autre voix", "Download another voice")
+                    color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                }
+            }
+
             Label {
                 visible: app.voices.length === 0
                 x: Theme.horizontalPageMargin

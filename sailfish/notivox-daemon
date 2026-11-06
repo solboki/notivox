@@ -30,7 +30,7 @@ import time
 import wave
 from array import array
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 
 HOME = os.path.expanduser("~")
 CONF_DIR = os.environ.get("NOTIVOX_CONF_DIR",
@@ -99,7 +99,10 @@ DEFAULT_CONFIG = {
     "audio": {
         # Propriétés PulseAudio du flux, au format "clé=valeur;clé=valeur"
         "notification_props": "media.role=notification",
-        "call_props": "media.name=notiftone",
+        # Le flux « notiftone » (celui de la sonnerie) est envoyé par
+        # Sailfish sur le haut-parleur : les appels utilisent donc le même
+        # type de flux que les notifications.
+        "call_props": "media.role=notification",
     },
     "debug": False,
 }
@@ -1385,6 +1388,18 @@ def write_status(pool):
         dbg("statut non écrit :", exc)
 
 
+def migrate(cfg):
+    """Corrige les réglages écrits par une version précédente. Renvoie
+    True si quelque chose a changé."""
+    changed = False
+    audio = cfg.setdefault("audio", {})
+    # 1.0.0 et 1.0.1 : la voix des appels sortait sur le haut-parleur.
+    if audio.get("call_props") == "media.name=notiftone":
+        audio["call_props"] = DEFAULT_CONFIG["audio"]["call_props"]
+        changed = True
+    return changed
+
+
 def main():
     global CFG, STATE, SPEAKER, SEEN
     if "--version" in sys.argv:
@@ -1405,6 +1420,9 @@ def main():
     cfg_w = Watched(CONFIG_FILE, DEFAULT_CONFIG)
     st_w = Watched(STATE_FILE, DEFAULT_STATE)
     CFG = cfg_w.load()
+    if os.path.exists(CONFIG_FILE) and migrate(CFG):
+        write_json(CONFIG_FILE, CFG)
+        log("réglages mis à jour pour cette version")
     cfg_w.changed()
     STATE = st_w.load()
     st_w.changed()

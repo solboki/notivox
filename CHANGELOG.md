@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2 (2026-11-06)
+
+- Fixed: incoming calls were announced on the phone's loudspeaker instead of the headphones. The call announcement used the ringtone's stream type, which Sailfish always plays on the loudspeaker; it now uses the same stream as notifications. Settings saved by earlier versions are updated automatically.
+- The Voices page has a visible "Download another voice" entry, in addition to the pull-down menu.
+
 ## 1.0.1 (2026-11-06)
 
 - Fixed: headphones were never detected when the phone is not set to English, because `pactl` translates its output. Nothing was therefore read.
