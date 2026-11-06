@@ -10,6 +10,7 @@
   notivox-ctl status          affiche l'état
   notivox-ctl say TEXTE       lit un texte (service démarré)
   notivox-ctl test [LANGUE]   lit une phrase d'essai
+  notivox-ctl log [N]         affiche les N dernières lignes du journal
 
 Les mêmes commandes existent en signaux D-Bus, utiles si Situations ne
 sait envoyer que des messages D-Bus :
@@ -76,6 +77,15 @@ def main(argv):
     elif cmd == "test":
         signal_("Test", "string:" + (argv[1] if len(argv) > 1 else ""))
         return 0
+    elif cmd == "log":
+        n = int(argv[1]) if len(argv) > 1 else 60
+        path = os.path.expanduser("~/.cache/notivox/notivox.log")
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                print("".join(f.readlines()[-n:]), end="")
+        except FileNotFoundError:
+            print("journal vide :", path)
+        return 0
     elif cmd == "status":
         s = load(STATUS_FILE, {})
         alive = bool(s) and time.time() - s.get("time", 0) < 20
@@ -86,7 +96,8 @@ def main(argv):
                   time.strftime("%H:%M", time.localtime(st["pause_until"])))
         print("service   :", "en marche" if alive else "arrêté")
         if alive:
-            print("sortie    :", s.get("output"))
+            print("sortie    :", s.get("output"),
+                  "(" + (s.get("device") or "par défaut") + ")")
             print("blocage   :", s.get("blocked") or "aucun")
             print("voix      :", ", ".join(s.get("voices", [])) or "aucune")
             if s.get("last_error"):

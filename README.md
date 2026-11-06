@@ -18,10 +18,10 @@ Reading can be controlled in four ways: the main switch, a timed pause (15 minut
 
 ## Installing
 
-Copy `notivox-1.0.0-1.aarch64.rpm` to the phone, then in a terminal:
+Copy `notivox-1.0.1-1.aarch64.rpm` to the phone, then in a terminal:
 
 ```
-devel-su pkcon install-local notivox-1.0.0-1.aarch64.rpm
+devel-su pkcon install-local notivox-1.0.1-1.aarch64.rpm
 ```
 
 The package is for 64-bit ARM phones (aarch64) and weighs about 21 MB, most of it being the Piper engine.
@@ -50,9 +50,9 @@ dbus-send --session --type=signal /org/notivox org.notivox.Control.Pause int32:3
 
 ## Points to check on your phone
 
-Some parts depend on how each Sailfish device is set up and could only be tested on a simulated bus. If something does not work, switch on **Advanced options › Verbose log**, reproduce the problem, then use **Show the log** on the same page.
+Some parts depend on how each Sailfish device is set up and could only be tested on a simulated bus. If something does not work, switch on **Advanced options › Verbose log**, reproduce the problem, then use **Show the log** on the same page, or run `notivox-ctl log` in a terminal.
 
-Headphone detection relies on `pactl`, with a fallback that asks BlueZ whether an audio device is connected. If your wired headphones are not recognised, the option "Read if the output is not recognised" lets Notivox talk anyway.
+Headphone detection relies on `pactl` (run in English, whatever the phone's language), with a fallback that asks BlueZ whether an audio device is connected. If your wired headphones are not recognised, the option "Read if the output is not recognised" lets Notivox talk anyway.
 
 The voice is played as a "notification" audio stream, and during a call as a stream named `notiftone`, so that it can be heard over the ringtone. If the voice does not reach the headphones or cuts the ringtone, these stream properties can be changed in the advanced options.
 

@@ -249,13 +249,14 @@ def service_enabled():
 
 
 def journal(lines=60):
+    """Dernières lignes du journal de Notivox (le journal du système
+    n'est pas lisible par l'utilisateur sur Sailfish)."""
+    path = os.path.join(HOME, ".cache", "notivox", "notivox.log")
     try:
-        r = subprocess.run(["journalctl", "--user", "-u", SERVICE, "-n",
-                            str(lines), "--no-pager", "-o", "cat"],
-                           capture_output=True, text=True, timeout=10)
-        return r.stdout.strip() or r.stderr.strip()
-    except Exception as exc:
-        return str(exc)
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return "".join(f.readlines()[-lines:]).strip() or "(vide)"
+    except FileNotFoundError:
+        return "(vide)"
 
 
 def languages():

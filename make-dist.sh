@@ -4,7 +4,7 @@
 #   sudo apt install rpm gcc-aarch64-linux-gnu curl
 set -e
 cd "$(dirname "$0")"
-V=1.0.0
+V=1.0.1
 PIPER_URL=https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_aarch64.tar.gz
 DEB=https://deb.debian.org/debian/pool/main/g/gcc-10
 TOP=$(pwd)

@@ -30,7 +30,7 @@ import time
 import wave
 from array import array
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 HOME = os.path.expanduser("~")
 CONF_DIR = os.environ.get("NOTIVOX_CONF_DIR",
@@ -111,9 +111,23 @@ CFG = {}
 STATE = {}
 
 
+LOG_FILE = os.path.join(CACHE_DIR, "notivox.log")
+
+
 def log(*args):
+    """Écrit dans le terminal et dans ~/.cache/notivox/notivox.log : sur
+    Sailfish, le journal du système n'est pas lisible par l'utilisateur."""
+    line = " ".join(str(a) for a in args)
     with _log_lock:
-        print("notivox:", *args, file=sys.stderr, flush=True)
+        print("notivox:", line, file=sys.stderr, flush=True)
+        try:
+            if os.path.exists(LOG_FILE) and \
+                    os.path.getsize(LOG_FILE) > 256 * 1024:
+                os.replace(LOG_FILE, LOG_FILE + ".1")
+            with open(LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + line + "\n")
+        except OSError:
+            pass
 
 
 def dbg(*args):
@@ -400,27 +414,46 @@ HEADSET_PORT_RE = re.compile(r"(headset|headphone|wired|bluetooth|usb|"
                              r"lineout|line-out)", re.I)
 
 
-def output_from_pactl():
+def pactl_sinks():
+    """[(nom, port actif)] des sorties son. pactl traduit ses étiquettes
+    (« Nom », « Port actif ») : on le fait donc parler anglais."""
     if not shutil.which("pactl"):
         return None
+    env = dict(os.environ, LC_ALL="C", LANG="C")
     try:
         out = subprocess.run(["pactl", "list", "sinks"], capture_output=True,
-                             text=True, timeout=4).stdout
+                             text=True, timeout=4, env=env).stdout
     except Exception:
         return None
     if not out.strip():
         return None
-    result = "speaker"
+    sinks = []
     for block in re.split(r"\n(?=Sink #)", out):
         name = re.search(r"^\s*Name:\s*(\S+)", block, re.M)
         port = re.search(r"^\s*Active Port:\s*(\S+)", block, re.M)
-        name = name.group(1) if name else ""
-        port = port.group(1) if port else ""
-        if "bluez" in name or "bluetooth" in port.lower():
-            return "bluetooth"
+        if name:
+            sinks.append((name.group(1), port.group(1) if port else ""))
+    return sinks
+
+
+def output_from_pactl():
+    """("bluetooth" | "wired" | "speaker", sortie à utiliser) ou None.
+
+    La sortie est toujours nommée explicitement : sur certains téléphones,
+    la sortie par défaut est « sink.null », qui ne mène nulle part."""
+    sinks = pactl_sinks()
+    if sinks is None:
+        return None
+    for name, port in sinks:
+        if name.startswith("bluez_sink") or "bluetooth" in port.lower():
+            return ("bluetooth", name)
+    for name, port in sinks:
         if port and HEADSET_PORT_RE.search(port):
-            result = "wired"
-    return result
+            return ("wired", name)
+    for name, port in sinks:
+        if port and name != "sink.null":
+            return ("speaker", name)
+    return ("speaker", None)
 
 
 A2DP_UUIDS = ("0000110b", "0000110d", "0000111e", "00001108", "00001131")
@@ -442,24 +475,33 @@ def output_from_bluez():
     return "speaker"
 
 
-_output_cache = (0.0, "unknown")
+_output_cache = (0.0, "unknown", None)
 
 
 def audio_output():
     """Renvoie "bluetooth", "wired", "speaker" ou "unknown"."""
+    return audio_route()[0]
+
+
+def audio_route():
+    """(type de sortie, nom de la sortie PulseAudio à viser ou None)."""
     global _output_cache
     now = time.time()
     if now - _output_cache[0] < 2:
-        return _output_cache[1]
+        return _output_cache[1], _output_cache[2]
     forced = os.environ.get("NOTIVOX_FORCE_OUTPUT")
-    res = forced or output_from_pactl()
-    if res in (None, "speaker") and not forced:
-        bt = output_from_bluez()
-        if bt == "bluetooth" or res is None:
-            res = bt
+    if forced:
+        res, sink = forced, None
+    else:
+        r = output_from_pactl()
+        res, sink = r if r else (None, None)
+        if res in (None, "speaker"):
+            bt = output_from_bluez()
+            if bt == "bluetooth" or res is None:
+                res = bt
     res = res or "unknown"
-    _output_cache = (now, res)
-    return res
+    _output_cache = (now, res, sink)
+    return res, sink
 
 
 def silent_profile():
@@ -768,18 +810,21 @@ def parse_props(s):
     return out
 
 
-def player_command(path, props):
+def player_command(path, props, device=None):
     if os.environ.get("NOTIVOX_PLAYER"):
-        return [os.environ["NOTIVOX_PLAYER"], path]
+        return [os.environ["NOTIVOX_PLAYER"], path] + \
+            (["--device=" + device] if device else [])
+    dev = ["--device=" + device] if device else []
     if shutil.which("paplay"):
-        return ["paplay"] + ["--property=%s=%s" % kv for kv in props] + [path]
+        return ["paplay"] + dev + \
+            ["--property=%s=%s" % kv for kv in props] + [path]
     if find_libpulse_simple():
         return [sys.executable, os.path.abspath(__file__), "--play", path] + \
-            ["%s=%s" % kv for kv in props]
+            dev + ["%s=%s" % kv for kv in props]
     if shutil.which("gst-launch-1.0"):
         sp = ",".join("%s=%s" % kv for kv in props)
-        sink = ["pulsesink"] + (['stream-properties=props,' + sp]
-                                if sp else [])
+        sink = ["pulsesink"] + (["device=" + device] if device else []) + \
+            (['stream-properties=props,' + sp] if sp else [])
         return ["gst-launch-1.0", "-q", "filesrc", "location=" + path, "!",
                 "wavparse", "!", "audioconvert", "!", "audioresample",
                 "!"] + sink
@@ -800,7 +845,7 @@ def find_libpulse_simple():
     return None
 
 
-def play_with_libpulse(path, props):
+def play_with_libpulse(path, props, device=None):
     """Lecteur de secours, quand paplay n'est pas installé : joue le
     fichier WAV avec la bibliothèque PulseAudio présente sur tout
     téléphone Sailfish. Lancé dans un processus à part pour pouvoir être
@@ -839,7 +884,8 @@ def play_with_libpulse(path, props):
                                     ctypes.POINTER(ctypes.c_int)]
     lib.pa_simple_free.argtypes = [ctypes.c_void_p]
     err = ctypes.c_int(0)
-    s = lib.pa_simple_new(None, b"Notivox", 1, None,
+    s = lib.pa_simple_new(None, b"Notivox", 1,
+                          device.encode("utf-8") if device else None,
                           stream_name.encode("utf-8"), ctypes.byref(spec),
                           None, None, ctypes.byref(err))
     if not s:
@@ -949,10 +995,12 @@ class Speaker(threading.Thread):
         apply_volume(out, int(CFG.get("volume", 100)))
         props = parse_props(CFG.get("audio", {}).get(props_key, ""))
         props.append(("media.title", "Notivox"))
-        cmd = player_command(out, props)
+        kind, device = audio_route()
+        cmd = player_command(out, props, device)
         if not cmd:
             raise RuntimeError("aucun lecteur audio (paplay, gst-launch-1.0)")
-        dbg("lecture [%s/%s] : %s" % (lang, voice or "espeak", text[:80]))
+        dbg("lecture [%s/%s] vers %s : %s" % (lang, voice or "espeak",
+                                              device or "défaut", text[:80]))
         p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                              stderr=subprocess.PIPE, text=True)
         self.current = (prio, p, tag)
@@ -1321,10 +1369,10 @@ SPEAKER = None
 
 
 def write_status(pool):
-    out = audio_output()
+    out, device = audio_route()
     data = {
         "version": VERSION, "pid": os.getpid(), "time": int(time.time()),
-        "output": out, "blocked": blocked_reason(),
+        "output": out, "device": device, "blocked": blocked_reason(),
         "quiet_hours": in_quiet_hours(),
         "voices": sorted(installed_voices()),
         "piper": os.path.exists(os.path.join(PIPER_DIR, "piper")),
@@ -1343,8 +1391,14 @@ def main():
         print(VERSION)
         return
     if len(sys.argv) >= 3 and sys.argv[1] == "--play":
-        props = [a.split("=", 1) for a in sys.argv[3:] if "=" in a]
-        sys.exit(play_with_libpulse(sys.argv[2], props))
+        device = None
+        props = []
+        for a in sys.argv[3:]:
+            if a.startswith("--device="):
+                device = a.split("=", 1)[1]
+            elif "=" in a:
+                props.append(a.split("=", 1))
+        sys.exit(play_with_libpulse(sys.argv[2], props, device))
     log("démarrage, version", VERSION)
     for d in (CONF_DIR, VOICE_DIR, CACHE_DIR):
         os.makedirs(d, exist_ok=True)

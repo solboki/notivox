@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1 (2026-11-06)
+
+- Fixed: headphones were never detected when the phone is not set to English, because `pactl` translates its output. Nothing was therefore read.
+- Fixed: no sound on phones whose default audio output is `sink.null`. The voice is now sent by name to the headphones, or to the speaker.
+- The log is written to `~/.cache/notivox/notivox.log`, since Sailfish does not let the user read the system journal. It is shown in the app and by `notivox-ctl log`.
+
 ## 1.0.0 (2026-11-06)
 
 First release.

@@ -1,5 +1,5 @@
 Name:       notivox
-Version:    1.0.0
+Version:    1.0.1
 Release:    1
 Summary:    Reads notifications and incoming calls aloud in your headphones
 License:    GPL-3.0-or-later
@@ -84,6 +84,13 @@ systemctl-user daemon-reload >/dev/null 2>&1 || :
 %{_datadir}/icons/hicolor/*/apps/notivox.png
 
 %changelog
+* Fri Nov 06 2026 Boris Solodki <solboki@solodki.fr> - 1.0.1-1
+- Fix: headphones were never detected when the phone is not in English
+  (pactl translates its output).
+- Fix: no sound on phones whose default audio output is sink.null; the
+  voice is now sent to the headphones (or speaker) by name.
+- The log is now written to ~/.cache/notivox/notivox.log, readable from
+  the app and with "notivox-ctl log".
 * Fri Nov 06 2026 Boris Solodki <solboki@solodki.fr> - 1.0.0-1
 - First release: notifications and incoming calls read aloud with Piper,
   per-app settings, quiet hours, pause, Situations commands.

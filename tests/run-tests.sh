@@ -55,12 +55,49 @@ plays() {
     else echo "ÉCHEC $1 ($PLAYS lectures au lieu de $2)"; FAIL=1; fi
 }
 
+echo "== sortie audio (pactl de Sailfish, sortie par défaut sink.null)"
+FAKE=$(mktemp -d)
+cat > "$FAKE/pactl" <<'P'
+#!/bin/sh
+if [ "$LC_ALL" != "C" ]; then
+  printf 'Destination #0\n\tNom : sink.primary_output\n\tPort actif : output-speaker\n'; exit 0
+fi
+cat <<'T'
+Sink #0
+	Name: sink.primary_output
+	Active Port: output-speaker
+Sink #3
+	Name: sink.null
+Sink #4
+	Name: bluez_sink.68_F2_1F_78_1C_19.a2dp_sink
+	Active Port: headset-output
+T
+[ -n "$NOBT" ] && exit 0
+P
+chmod +x "$FAKE/pactl"
+R=$(PATH="$FAKE:$PATH" python3 -c "
+from importlib.machinery import SourceFileLoader
+m = SourceFileLoader('d', '$DAEMON').load_module()
+print(m.audio_route())")
+if [ "$R" = "('bluetooth', 'bluez_sink.68_F2_1F_78_1C_19.a2dp_sink')" ]; then
+    echo "ok    casque Bluetooth reconnu et visé directement"
+else echo "ÉCHEC sortie audio : $R"; FAIL=1; fi
+sed -i 's/^\tName: bluez.*//; s/^\tActive Port: headset-output//' "$FAKE/pactl"
+R=$(PATH="$FAKE:$PATH" NOTIVOX_CACHE_DIR="$FAKE" python3 -c "
+from importlib.machinery import SourceFileLoader
+m = SourceFileLoader('d', '$DAEMON').load_module()
+m.output_from_bluez = lambda: None
+print(m.audio_route())")
+if [ "$R" = "('speaker', 'sink.primary_output')" ]; then
+    echo "ok    sans casque : haut-parleur, jamais sink.null"
+else echo "ÉCHEC sortie sans casque : $R"; FAIL=1; fi
+
 echo "== notifications"
 run notif '{"new_apps_default": true, "apps": {"Météo": {"read": false}}, "debug": true}' 12
 check "guillemets et retour à la ligne" 'Salut, on dit "midi" ou "13h" demain ?'
 check "doublon ignoré" "doublon ignoré"
 check "langue anglaise détectée (eSpeak de secours)" "lecture [en/espeak]"
-check "application coupée non lue" "] : Météo" 0
+check "application coupée non lue" "défaut : Météo" 0
 check "aperçu Sailfish préféré au texte brut" "Jean Dupont. Rappelle-moi stp"
 plays "trois annonces jouées" 3
 grep -q '"Météo"' "$WORK/conf/apps-seen.json" && echo "ok    application coupée tout de même répertoriée" || { echo "ÉCHEC répertoire des applications"; FAIL=1; }
@@ -80,6 +117,6 @@ plays "trois annonces d'appel" 3
 echo "== commandes (Situations)"
 run control '{"new_apps_default": true, "debug": true}' 8
 check "pause respectée" "notification non lue (en pause)"
-check "texte libre lu" "] : Texte libre envoyé par Situations"
+check "texte libre lu" "défaut : Texte libre envoyé par Situations"
 
 exit $FAIL
