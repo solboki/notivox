@@ -1,11 +1,14 @@
+pragma Singleton
 import QtQuick 2.0
 import Sailfish.Silica 1.0
 import io.thp.pyotherside 1.5
-import "pages"
-import "cover"
 
-ApplicationWindow {
+// État et fonctions partagés par toutes les pages de réglages de Notivox.
+// Les pages sont ouvertes par l'application Paramètres : un objet unique
+// (singleton) leur évite de dépendre de la fenêtre qui les accueille.
+Item {
     id: app
+    readonly property alias py: py
 
     // Données lues dans les fichiers du service
     property var cfg: ({})
@@ -126,15 +129,15 @@ ApplicationWindow {
         onError: console.log("python: " + traceback)
     }
     property string downloadError: ""
+    // Nombre de pages de Notivox ouvertes : on ne relit les fichiers que
+    // lorsqu'au moins une est affichée.
+    property int watchers: 0
 
     Timer {
         interval: 4000
         repeat: true
-        running: Qt.application.active && app.ready
+        running: Qt.application.active && app.ready && app.watchers > 0
         onTriggered: app.refresh()
     }
 
-    initialPage: Component { MainPage { } }
-    cover: Component { CoverPage { } }
-    allowedOrientations: defaultAllowedOrientations
 }

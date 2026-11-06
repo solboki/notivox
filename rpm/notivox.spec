@@ -1,5 +1,5 @@
 Name:       notivox
-Version:    1.0.6
+Version:    1.1.0
 Release:    1
 Summary:    Reads notifications and incoming calls aloud in your headphones
 License:    GPL-3.0-or-later
@@ -9,6 +9,7 @@ Source1:    piper-aarch64.tar.gz
 Requires:   python3-base
 Requires:   pyotherside-qml-plugin-python3-qt5
 Requires:   sailfishsilica-qt5
+Requires:   jolla-settings
 # Piper et ses bibliothèques sont embarqués dans /usr/share/notivox/piper :
 # ils ne doivent ni fournir ni réclamer de bibliothèques au système.
 AutoReqProv: no
@@ -44,17 +45,24 @@ install -Dm755 build/notivox-contacts %{buildroot}%{_libexecdir}/notivox/notivox
 install -Dm644 sailfish/notivox.service %{buildroot}%{_userunitdir}/notivox.service
 mkdir -p %{buildroot}%{_userunitdir}/user-session.target.wants
 ln -s ../notivox.service %{buildroot}%{_userunitdir}/user-session.target.wants/notivox.service
-install -Dm644 sailfish/notivox.desktop %{buildroot}%{_datadir}/applications/notivox.desktop
 install -Dm644 data/voices-catalog.json %{buildroot}%{_datadir}/notivox/voices-catalog.json
-mkdir -p %{buildroot}%{_datadir}/notivox/qml
-cp -r app/qml/* %{buildroot}%{_datadir}/notivox/qml/
-install -Dm644 app/py/notivox_ui.py %{buildroot}%{_datadir}/notivox/qml/py/notivox_ui.py
+# Page de l'application Paramètres : Paramètres › Notification vocale
+P=%{buildroot}%{_datadir}/jolla-settings/pages/notivox
+mkdir -p $P/pages $P/py
+install -m644 app/qml/NV.qml app/qml/qmldir $P/
+install -m644 app/qml/pages/*.qml $P/pages/
+install -m644 app/py/notivox_ui.py $P/py/
+install -m644 icons/notivox-settings.png $P/notivox-icon.png
+install -Dm644 settings/notivox.json %{buildroot}%{_datadir}/jolla-settings/entries/notivox.json
+mkdir -p %{buildroot}%{_datadir}/translations
+for f in translations/*.qm; do
+    b=$(basename $f .qm); l=${b#settings-notivox-}
+    # Deux formes de nom, selon la façon dont le catalogue est cherché
+    install -m644 $f %{buildroot}%{_datadir}/translations/settings-notivox-$l.qm
+    install -m644 $f %{buildroot}%{_datadir}/translations/settings-notivox_$l.qm
+done
 mkdir -p %{buildroot}%{_datadir}/notivox/piper
 cp -a piper-bin/piper/. %{buildroot}%{_datadir}/notivox/piper/
-for s in 86 108 128 172 256; do
-    install -Dm644 icons/notivox-$s.png \
-        %{buildroot}%{_datadir}/icons/hicolor/${s}x${s}/apps/notivox.png
-done
 
 %post
 # Démarre (ou redémarre) le service pour l'utilisateur du téléphone.
@@ -79,11 +87,17 @@ systemctl-user daemon-reload >/dev/null 2>&1 || :
 %attr(2755,root,privileged) %{_libexecdir}/notivox/notivox-contacts
 %{_userunitdir}/notivox.service
 %{_userunitdir}/user-session.target.wants/notivox.service
-%{_datadir}/applications/notivox.desktop
 %{_datadir}/notivox
-%{_datadir}/icons/hicolor/*/apps/notivox.png
+%{_datadir}/jolla-settings/pages/notivox
+%{_datadir}/jolla-settings/entries/notivox.json
+%{_datadir}/translations/settings-notivox*.qm
 
 %changelog
+* Fri Nov 06 2026 Boris Solodki <solboki@solodki.fr> - 1.1.0-1
+- The settings are now a page of the Settings app ("Voice notifications",
+  translated in the system language) instead of an app icon.
+- The service starts with the phone by default; switching it off in the
+  advanced options keeps it stopped across restarts.
 * Fri Nov 06 2026 Boris Solodki <solboki@solodki.fr> - 1.0.6-1
 - Fix: the caller's name was never found on recent Sailfish versions,
   whose address book no longer stores the display name in the Contacts

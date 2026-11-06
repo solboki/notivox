@@ -1,5 +1,6 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
+import ".."
 
 Dialog {
     id: dlg
@@ -36,23 +37,23 @@ Dialog {
     Column {
         id: col
         width: parent.width
-        DialogHeader { acceptText: app.t("Enregistrer", "Save") }
+        DialogHeader { acceptText: NV.t("Enregistrer", "Save") }
 
         ValueButton {
-            label: app.t("Début", "Start")
+            label: NV.t("Début", "Start")
             value: dlg.start
             onClicked: dlg.pick("start")
         }
         ValueButton {
-            label: app.t("Fin", "End")
+            label: NV.t("Fin", "End")
             value: dlg.end
             onClicked: dlg.pick("end")
         }
 
-        SectionHeader { text: app.t("Jours", "Days") }
+        SectionHeader { text: NV.t("Jours", "Days") }
 
         Repeater {
-            model: app.french ? ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+            model: NV.french ? ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
                               : ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
             TextSwitch {
                 text: modelData

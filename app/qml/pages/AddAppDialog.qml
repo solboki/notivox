@@ -1,5 +1,6 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
+import ".."
 
 Dialog {
     property alias name: field.text
@@ -7,12 +8,12 @@ Dialog {
 
     Column {
         width: parent.width
-        DialogHeader { acceptText: app.t("Ajouter", "Add") }
+        DialogHeader { acceptText: NV.t("Ajouter", "Add") }
         TextField {
             id: field
             width: parent.width
             focus: true
-            label: app.t("Nom de l'application", "App name")
+            label: NV.t("Nom de l'application", "App name")
             placeholderText: label
             EnterKey.enabled: text.trim().length > 0
             EnterKey.iconSource: "image://theme/icon-m-enter-accept"
@@ -24,7 +25,7 @@ Dialog {
             wrapMode: Text.Wrap
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.secondaryHighlightColor
-            text: app.t("Indiquez le nom exact sous lequel l'application signe ses notifications, par exemple « WhatsApp » ou « Messages ».",
+            text: NV.t("Indiquez le nom exact sous lequel l'application signe ses notifications, par exemple « WhatsApp » ou « Messages ».",
                         "Enter the exact name the app signs its notifications with, for example \"WhatsApp\" or \"Messages\".")
         }
     }

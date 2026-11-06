@@ -211,26 +211,27 @@ DISABLED_MARK = os.path.join(CONF_DIR, "service-disabled")
 
 
 def ensure_started():
-    """Au lancement de l'application : démarre le service s'il ne tourne
-    pas, sauf si l'utilisateur a choisi de ne pas le démarrer."""
+    """À l'ouverture des réglages : démarre le service s'il ne tourne pas,
+    sauf si l'utilisateur l'a désactivé."""
     if os.path.exists(DISABLED_MARK) or service_active():
         return service_active()
     return service("enable")
 
 
 def service(action):
+    """enable : le service tourne, y compris après un redémarrage.
+    disable : il s'arrête et ne redémarre plus avec le téléphone (le
+    service lit ce choix à son lancement). restart : le relance."""
     if action == "enable":
         try:
             os.unlink(DISABLED_MARK)
         except FileNotFoundError:
             pass
+        cmds = [["start", SERVICE]]
     elif action == "disable":
         os.makedirs(CONF_DIR, exist_ok=True)
         open(DISABLED_MARK, "w").close()
-    if action == "enable":
-        cmds = [["enable", SERVICE], ["start", SERVICE]]
-    elif action == "disable":
-        cmds = [["disable", SERVICE], ["stop", SERVICE]]
+        cmds = [["stop", SERVICE]]
     else:
         cmds = [[action, SERVICE]]
     for c in cmds:
@@ -240,12 +241,7 @@ def service(action):
 
 
 def service_enabled():
-    try:
-        r = subprocess.run(["systemctl", "--user", "is-enabled", SERVICE],
-                           capture_output=True, text=True, timeout=5)
-        return r.stdout.strip() in ("enabled", "static")
-    except Exception:
-        return False
+    return not os.path.exists(DISABLED_MARK)
 
 
 def journal(lines=60):

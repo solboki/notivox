@@ -1,10 +1,10 @@
 #!/bin/sh
 # Construit le paquet Sailfish OS (aarch64) et l'archive des sources dans
 # dist/. À lancer sur un ordinateur Debian ou Ubuntu :
-#   sudo apt install rpm gcc-aarch64-linux-gnu curl
+#   sudo apt install rpm gcc-aarch64-linux-gnu curl qttools5-dev-tools
 set -e
 cd "$(dirname "$0")"
-V=1.0.6
+V=1.1.0
 PIPER_URL=https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_aarch64.tar.gz
 DEB=https://deb.debian.org/debian/pool/main/g/gcc-10
 TOP=$(pwd)
@@ -33,7 +33,11 @@ aarch64-linux-gnu-gcc -O2 -static -Wall -Wno-format-truncation \
     -o build/notivox-contacts sailfish/notivox-contacts.c
 aarch64-linux-gnu-strip build/notivox-contacts
 
-# 3. Archive des sources et paquet RPM.
+# 3. Traductions du titre de la page des Paramètres.
+LRELEASE=$(command -v lrelease-qt5 || ls /usr/lib/*/qt5/bin/lrelease 2>/dev/null | head -1 || command -v lrelease)
+for f in translations/*.ts; do "$LRELEASE" -idbased -silent "$f" -qm "${f%.ts}.qm"; done
+
+# 4. Archive des sources et paquet RPM.
 rm -rf dist rpmbuild
 mkdir -p dist rpmbuild/SOURCES rpmbuild/SPECS
 tar --transform "s,^\.,notivox-$V," \

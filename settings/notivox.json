@@ -1,0 +1,15 @@
+{
+    "translation_catalog": "settings-notivox",
+    "entries": [
+        {
+            "path": "system_settings/look_and_feel/notivox",
+            "title": "Voice notifications",
+            "translation_id": "settings-notivox-la-title",
+            "type": "page",
+            "icon": "/usr/share/jolla-settings/pages/notivox/notivox-icon.png",
+            "params": {
+                "source": "/usr/share/jolla-settings/pages/notivox/pages/MainPage.qml"
+            }
+        }
+    ]
+}

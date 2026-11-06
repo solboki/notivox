@@ -1,12 +1,13 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
+import ".."
 
 Page {
     id: page
     property var all: []
     property string filter: ""
 
-    Component.onCompleted: py.call("notivox_ui.languages", [], function(l) { page.all = l })
+    Component.onCompleted: NV.py.call("notivox_ui.languages", [], function(l) { page.all = l })
 
     SilicaListView {
         id: list
@@ -23,10 +24,10 @@ Page {
         }
         header: Column {
             width: list.width
-            PageHeader { title: app.t("Choisir une langue", "Choose a language") }
+            PageHeader { title: NV.t("Choisir une langue", "Choose a language") }
             SearchField {
                 width: parent.width
-                placeholderText: app.t("Rechercher", "Search")
+                placeholderText: NV.t("Rechercher", "Search")
                 onTextChanged: page.filter = text
             }
         }

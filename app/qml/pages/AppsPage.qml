@@ -1,5 +1,6 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
+import ".."
 
 Page {
     id: page
@@ -8,8 +9,8 @@ Page {
     // et celles réglées à la main, triées par nom.
     function appNames() {
         var names = {}
-        var apps = app.get(["apps"], {})
-        for (var a in app.seen) names[a] = true
+        var apps = NV.get(["apps"], {})
+        for (var a in NV.seen) names[a] = true
         for (var b in apps) names[b] = true
         var out = []
         for (var k in names) out.push(k)
@@ -17,10 +18,10 @@ Page {
         return out
     }
     function setting(name) {
-        var apps = app.get(["apps"], {})
+        var apps = NV.get(["apps"], {})
         var s = apps[name] || {}
         return {
-            read: s.read !== undefined ? s.read : app.get(["new_apps_default"], false),
+            read: s.read !== undefined ? s.read : NV.get(["new_apps_default"], false),
             content: s.content || "full",
             lang: s.lang || "auto"
         }
@@ -33,38 +34,38 @@ Page {
 
         PullDownMenu {
             MenuItem {
-                text: app.t("Ajouter une application", "Add an app")
+                text: NV.t("Ajouter une application", "Add an app")
                 onClicked: {
                     var d = pageStack.push(Qt.resolvedUrl("AddAppDialog.qml"))
                     d.accepted.connect(function() {
-                        py.call("notivox_ui.add_app", [d.name], function(c) { app.cfg = c })
+                        NV.py.call("notivox_ui.add_app", [d.name], function(c) { NV.cfg = c })
                     })
                 }
             }
             MenuItem {
-                text: app.t("Tout couper", "Turn all off")
-                onClicked: py.call("notivox_ui.set_all_apps", [false, page.appNames()],
-                                   function(c) { app.cfg = c })
+                text: NV.t("Tout couper", "Turn all off")
+                onClicked: NV.py.call("notivox_ui.set_all_apps", [false, page.appNames()],
+                                   function(c) { NV.cfg = c })
             }
             MenuItem {
-                text: app.t("Tout lire", "Read all")
-                onClicked: py.call("notivox_ui.set_all_apps", [true, page.appNames()],
-                                   function(c) { app.cfg = c })
+                text: NV.t("Tout lire", "Read all")
+                onClicked: NV.py.call("notivox_ui.set_all_apps", [true, page.appNames()],
+                                   function(c) { NV.cfg = c })
             }
         }
 
         header: Column {
             width: list.width
-            PageHeader { title: app.t("Applications", "Apps") }
+            PageHeader { title: NV.t("Applications", "Apps") }
             TextSwitch {
-                text: app.t("Lire les nouvelles applications", "Read new apps")
-                description: app.t("Réglage appliqué à une application la première fois qu'elle envoie une notification.",
+                text: NV.t("Lire les nouvelles applications", "Read new apps")
+                description: NV.t("Réglage appliqué à une application la première fois qu'elle envoie une notification.",
                                    "Applied to an app the first time it sends a notification.")
-                checked: app.get(["new_apps_default"], false)
+                checked: NV.get(["new_apps_default"], false)
                 automaticCheck: false
-                onClicked: app.setCfg(["new_apps_default"], !checked)
+                onClicked: NV.setCfg(["new_apps_default"], !checked)
             }
-            SectionHeader { text: app.t("Applications connues", "Known apps") }
+            SectionHeader { text: NV.t("Applications connues", "Known apps") }
         }
 
         delegate: ListItem {
@@ -87,10 +88,10 @@ Page {
                 Label {
                     width: parent.width
                     text: {
-                        var c = item.s.content === "title" ? app.t("titre seulement", "title only")
-                              : item.s.content === "app" ? app.t("nom de l'application seulement", "app name only")
-                              : app.t("titre et texte", "title and text")
-                        var seen = app.seen[modelData]
+                        var c = item.s.content === "title" ? NV.t("titre seulement", "title only")
+                              : item.s.content === "app" ? NV.t("nom de l'application seulement", "app name only")
+                              : NV.t("titre et texte", "title and text")
+                        var seen = NV.seen[modelData]
                         return seen && seen.sample ? c + " · " + seen.sample : c
                     }
                     truncationMode: TruncationMode.Fade
@@ -104,15 +105,15 @@ Page {
                 anchors.verticalCenter: parent.verticalCenter
                 checked: item.s.read
                 automaticCheck: false
-                onClicked: py.call("notivox_ui.set_app", [modelData, "read", !checked],
-                                   function(c) { app.cfg = c })
+                onClicked: NV.py.call("notivox_ui.set_app", [modelData, "read", !checked],
+                                   function(c) { NV.cfg = c })
             }
         }
 
         ViewPlaceholder {
             enabled: list.count === 0
-            text: app.t("Aucune application pour l'instant", "No app yet")
-            hintText: app.t("Les applications apparaissent ici dès leur première notification. Vous pouvez aussi en ajouter une par son nom.",
+            text: NV.t("Aucune application pour l'instant", "No app yet")
+            hintText: NV.t("Les applications apparaissent ici dès leur première notification. Vous pouvez aussi en ajouter une par son nom.",
                             "Apps appear here with their first notification. You can also add one by name.")
         }
         VerticalScrollDecorator { }

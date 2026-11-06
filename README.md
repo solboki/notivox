@@ -14,25 +14,25 @@ With a Bluetooth headset, Sailfish switches the headset's audio profile to "off"
 
 By default nothing is ever spoken on the phone's loudspeaker. Notivox only talks when Bluetooth or wired headphones are in use.
 
-Each message is read by a voice in its own language when one is installed: a message in English is read by an English voice, a message in French by a French voice. Voices are downloaded from the app, from the public Piper voice repository, in more than fifty languages. For a language without a Piper voice, the much more robotic but very wide eSpeak NG voice can step in.
+Each message is read by a voice in its own language when one is installed: a message in English is read by an English voice, a message in French by a French voice. Voices are downloaded from the settings page, from the public Piper voice repository, in more than fifty languages. For a language without a Piper voice, the much more robotic but very wide eSpeak NG voice can step in.
 
 Reading can be controlled in four ways: the main switch, a timed pause (15 minutes, one hour, two hours, until tomorrow morning), quiet hours by day and time, and the [Situations](https://forum.sailfishos.org/t/situations-application-feedback/16333) app through a command or a D-Bus signal.
 
 ## Installing
 
-Copy `notivox-1.0.6-1.aarch64.rpm` to the phone, then in a terminal:
+Copy `notivox-1.1.0-1.aarch64.rpm` to the phone, then in a terminal:
 
 ```
-devel-su pkcon install-local notivox-1.0.6-1.aarch64.rpm
+devel-su pkcon install-local notivox-1.1.0-1.aarch64.rpm
 ```
 
 The package is for 64-bit ARM phones (aarch64) and weighs about 21 MB, most of it being the Piper engine.
 
-On first launch, the app starts the background service and offers to download a voice in your language (about 60 MB for a "medium" voice, 28 MB for a "low" one). Then open **Apps**: apps appear there with their first notification, all switched off, and you switch on those you want to hear. You can change the default in the same page.
+Notivox has no app icon: its settings are in **Settings › Voice notifications** (the name follows the system language). The background service starts with the phone. When you first open the page, it offers to download a voice in your language (about 60 MB for a "medium" voice, 28 MB for a "low" one). Then open **Apps**: apps appear there with their first notification, all switched off, and you switch on those you want to hear. You can change the default in the same page.
 
 ## Situations and the command line
 
-`notivox-ctl` changes the same state as the app's switch:
+`notivox-ctl` changes the same state as the main switch of the settings page:
 
 ```
 notivox-ctl on              # turn reading on (and end a pause)
@@ -73,7 +73,7 @@ Then delete `~/.config/notivox`, `~/.local/share/notivox` (the downloaded voices
 Building is done on a Debian or Ubuntu computer:
 
 ```
-sudo apt install rpm gcc-aarch64-linux-gnu curl
+sudo apt install rpm gcc-aarch64-linux-gnu curl qttools5-dev-tools
 ./make-dist.sh
 ```
 
@@ -97,9 +97,11 @@ PIPER_DIR=/path/to/piper_x86_64 VOICE=/path/to/fr_FR-siwis-medium.onnx ./tests/r
 | Folder | Content |
 |---|---|
 | `sailfish/` | The service (Python, needing only `python3`, `dbus-monitor` and `dbus-send`), the `notivox-ctl` command, the address-book helper, the systemd unit and the launcher. |
-| `app/` | The settings app: Silica interface (QML) and Python backend (PyOtherSide). |
+| `app/` | The settings page, shown in the Settings app: Silica interface (QML) and Python backend (PyOtherSide). |
+| `settings/` | The entry that adds the page to the Settings app. |
+| `translations/` | Translations of the page title in the Settings list. |
 | `data/` | The list of Piper voices offered for download. |
-| `icons/` | The app icon in every size used. |
+| `icons/` | The project icon, and the icon of the Settings entry. |
 | `rpm/` | The Sailfish package description. |
 | `tests/` | Tests of the service on a simulated D-Bus bus. |
 

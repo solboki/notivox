@@ -1,5 +1,6 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
+import ".."
 
 Page {
     id: page
@@ -7,12 +8,12 @@ Page {
     property var items: []
 
     function reload() {
-        py.call("notivox_ui.catalog", [lang], function(l) { page.items = l })
+        NV.py.call("notivox_ui.catalog", [lang], function(l) { page.items = l })
     }
     Component.onCompleted: reload()
 
     Connections {
-        target: app
+        target: NV
         onVoicesChanged: page.reload()
     }
 
@@ -23,8 +24,8 @@ Page {
         header: Column {
             width: list.width
             PageHeader {
-                title: app.langName(page.lang)
-                description: app.t("Voix Piper à télécharger", "Piper voices to download")
+                title: NV.langName(page.lang)
+                description: NV.t("Voix Piper à télécharger", "Piper voices to download")
             }
             Label {
                 x: Theme.horizontalPageMargin
@@ -33,33 +34,33 @@ Page {
                 font.pixelSize: Theme.fontSizeExtraSmall
                 color: Theme.secondaryHighlightColor
                 bottomPadding: Theme.paddingMedium
-                text: app.t("« medium » donne la voix la plus naturelle ; « low » est plus légère et plus rapide. Le téléchargement vient du dépôt public des voix Piper.",
+                text: NV.t("« medium » donne la voix la plus naturelle ; « low » est plus légère et plus rapide. Le téléchargement vient du dépôt public des voix Piper.",
                             "\"medium\" sounds most natural; \"low\" is lighter and faster. Downloads come from the public Piper voices repository.")
             }
             Label {
-                visible: app.downloadError !== ""
+                visible: NV.downloadError !== ""
                 x: Theme.horizontalPageMargin
                 width: parent.width - 2 * x
                 wrapMode: Text.Wrap
                 color: Theme.errorColor
                 font.pixelSize: Theme.fontSizeExtraSmall
-                text: app.t("Échec du téléchargement : ", "Download failed: ") + app.downloadError
+                text: NV.t("Échec du téléchargement : ", "Download failed: ") + NV.downloadError
             }
         }
         delegate: ListItem {
             id: li
-            property bool busy: app.downloads[modelData.key] !== undefined
+            property bool busy: NV.downloads[modelData.key] !== undefined
             contentHeight: Theme.itemSizeMedium + (busy ? bar.height : 0)
             onClicked: {
                 if (modelData.installed)
-                    py.call("notivox_ui.test_voice", [modelData.key])
+                    NV.py.call("notivox_ui.test_voice", [modelData.key])
                 else if (!busy) {
-                    app.downloadError = ""
-                    py.call("notivox_ui.download", [modelData.key])
-                    var d = app.downloads
+                    NV.downloadError = ""
+                    NV.py.call("notivox_ui.download", [modelData.key])
+                    var d = NV.downloads
                     d[modelData.key] = 0
-                    app.downloads = d
-                    app.downloadsChanged()
+                    NV.downloads = d
+                    NV.downloadsChanged()
                 }
             }
             Column {
@@ -76,10 +77,10 @@ Page {
                     width: parent.width
                     font.pixelSize: Theme.fontSizeExtraSmall
                     color: modelData.installed ? Theme.highlightColor : Theme.secondaryColor
-                    text: modelData.quality + " · " + Math.round(modelData.size / 1048576) + app.t(" Mo", " MB") +
-                          (modelData.speakers > 1 ? " · " + modelData.speakers + app.t(" voix", " speakers") : "") +
-                          (modelData.installed ? app.t(" · installée, touchez pour écouter", " · installed, tap to listen")
-                                               : li.busy ? "" : app.t(" · touchez pour télécharger", " · tap to download"))
+                    text: modelData.quality + " · " + Math.round(modelData.size / 1048576) + NV.t(" Mo", " MB") +
+                          (modelData.speakers > 1 ? " · " + modelData.speakers + NV.t(" voix", " speakers") : "") +
+                          (modelData.installed ? NV.t(" · installée, touchez pour écouter", " · installed, tap to listen")
+                                               : li.busy ? "" : NV.t(" · touchez pour télécharger", " · tap to download"))
                 }
                 ProgressBar {
                     id: bar
@@ -87,7 +88,7 @@ Page {
                     width: parent.width
                     leftMargin: 0; rightMargin: 0
                     minimumValue: 0; maximumValue: 1
-                    value: app.downloads[modelData.key] || 0
+                    value: NV.downloads[modelData.key] || 0
                 }
             }
         }

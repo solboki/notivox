@@ -3,3 +3,4 @@ rpmbuild/
 vendor/
 build/
 __pycache__/
+translations/*.qm

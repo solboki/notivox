@@ -1,5 +1,6 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
+import ".."
 
 Page {
     SilicaFlickable {
@@ -10,14 +11,14 @@ Page {
             id: col
             width: parent.width
             spacing: Theme.paddingMedium
-            PageHeader { title: app.t("Commandes pour Situations", "Commands for Situations") }
+            PageHeader { title: NV.t("Commandes pour Situations", "Commands for Situations") }
 
             Label {
                 x: Theme.horizontalPageMargin
                 width: parent.width - 2 * x
                 wrapMode: Text.Wrap
                 color: Theme.highlightColor
-                text: app.t("Dans Situations, ajoutez à une situation l'action « exécuter une commande » avec l'une des lignes ci-dessous. Touchez une ligne pour la copier.",
+                text: NV.t("Dans Situations, ajoutez à une situation l'action « exécuter une commande » avec l'une des lignes ci-dessous. Touchez une ligne pour la copier.",
                             "In Situations, add a \"run command\" action to a situation with one of the lines below. Tap a line to copy it.")
             }
 
@@ -35,7 +36,7 @@ Page {
                     height: Theme.itemSizeMedium
                     onClicked: {
                         Clipboard.text = modelData.c
-                        hint.text = app.t("Copié : ", "Copied: ") + modelData.c
+                        hint.text = NV.t("Copié : ", "Copied: ") + modelData.c
                     }
                     Column {
                         x: Theme.horizontalPageMargin
@@ -47,7 +48,7 @@ Page {
                             color: highlighted ? Theme.highlightColor : Theme.primaryColor
                         }
                         Label {
-                            text: app.t(modelData.fr, modelData.en)
+                            text: NV.t(modelData.fr, modelData.en)
                             font.pixelSize: Theme.fontSizeExtraSmall
                             color: Theme.secondaryColor
                         }
@@ -63,14 +64,14 @@ Page {
                 font.pixelSize: Theme.fontSizeSmall
             }
 
-            SectionHeader { text: app.t("Par D-Bus", "Over D-Bus") }
+            SectionHeader { text: NV.t("Par D-Bus", "Over D-Bus") }
             Label {
                 x: Theme.horizontalPageMargin
                 width: parent.width - 2 * x
                 wrapMode: Text.Wrap
                 font.pixelSize: Theme.fontSizeExtraSmall
                 color: Theme.secondaryHighlightColor
-                text: app.t("Les mêmes ordres existent sous forme de signaux D-Bus sur le bus de session, interface org.notivox.Control, chemin /org/notivox : Enable, Disable, Toggle, Resume, Pause (int32, minutes) et Say (texte). Exemple :",
+                text: NV.t("Les mêmes ordres existent sous forme de signaux D-Bus sur le bus de session, interface org.notivox.Control, chemin /org/notivox : Enable, Disable, Toggle, Resume, Pause (int32, minutes) et Say (texte). Exemple :",
                             "The same orders exist as D-Bus signals on the session bus, interface org.notivox.Control, path /org/notivox: Enable, Disable, Toggle, Resume, Pause (int32, minutes) and Say (text). Example:")
             }
             Label {
@@ -87,7 +88,7 @@ Page {
                 wrapMode: Text.Wrap
                 font.pixelSize: Theme.fontSizeExtraSmall
                 color: Theme.secondaryHighlightColor
-                text: app.t("L'interrupteur et la pause de la page d'accueil reflètent aussitôt ces commandes : Situations et l'application agissent sur le même état.",
+                text: NV.t("L'interrupteur et la pause de la page d'accueil reflètent aussitôt ces commandes : Situations et l'application agissent sur le même état.",
                             "The switch and pause on the main page reflect these commands at once: Situations and the app act on the same state.")
             }
         }

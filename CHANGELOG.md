@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.0 (2026-11-06)
+
+- The settings are no longer an app with its own icon: they are a page of the Settings app, named "Voice notifications" in the system language (Notification vocale, Sprachbenachrichtigung, etc.).
+- The service starts with the phone by default. Switching it off in the advanced options keeps it stopped, even after a restart, until it is switched on again.
+
 ## 1.0.6 (2026-11-06)
 
 - Fixed: on recent Sailfish versions, calls were announced with the number instead of the caller's name. The address book no longer stores the display name in its `Contacts` table; Notivox now looks for it, in order, in the display labels, the first and last names, the nickname and the organisation.
