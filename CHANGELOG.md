@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.0 (2026-11-07, not published)
+
+- All settings are made per app, in the Apps page. On arrival of a notification: ignore, read the titles, or read everything, with an option to read on the loudspeaker when no headphones are connected. In the summary: ignore, give the count, read the titles, or read everything. A new app is ignored in both cases, except Messages and calls, read in full. The notification families and their settings are gone; existing settings are converted.
+- Lighter summary. After the greeting, the date and time (optional) and the weather (optional, from Open-Meteo for a town chosen in the settings), it only says how many notifications there are, without listing the apps. Notifications are no longer numbered: a beep opens and closes each app's block and separates its notifications.
+- "Titles" mode: the sender or subject; when the title is only the app name (as with Facebook), the first sentence of the text is used.
+- Links starting with "www." are no longer read aloud.
+
 ## 1.3.0 (2026-11-07, not published)
 
 - New form of the spoken summary: a greeting with the date and time; the total number of notifications and the apps they come from; then, for each app, its number of notifications and, when it is read in full, each one numbered and separated by a short beep; a closing sentence. Short pauses separate the parts. Available in French, English, German, Spanish and Italian.

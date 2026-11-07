@@ -5,27 +5,17 @@ import ".."
 Page {
     id: page
 
-    // Liste des applications : celles qui ont déjà envoyé une notification
-    // et celles réglées à la main, triées par nom.
+    // Applications ayant déjà envoyé une notification ou réglées à la main,
+    // triées par nom.
     function appNames() {
-        var names = {}
-        var apps = NV.get(["apps"], {})
-        for (var a in NV.seen) names[a] = true
-        for (var b in apps) names[b] = true
         var out = []
-        for (var k in names) out.push(k)
+        for (var k in NV.effective) out.push(k)
         out.sort(function(x, y) { return x.toLowerCase() < y.toLowerCase() ? -1 : 1 })
         return out
     }
-    function setting(name) {
-        var apps = NV.get(["apps"], {})
-        var s = apps[name] || {}
-        return {
-            read: s.read !== undefined ? s.read : NV.get(["new_apps_default"], false),
-            content: s.content || "full",
-            lang: s.lang || "auto"
-        }
-    }
+
+    Component.onCompleted: NV.watchers++
+    Component.onDestruction: NV.watchers--
 
     SilicaListView {
         id: list
@@ -38,75 +28,65 @@ Page {
                 onClicked: {
                     var d = pageStack.push(Qt.resolvedUrl("AddAppDialog.qml"))
                     d.accepted.connect(function() {
-                        NV.py.call("notivox_ui.add_app", [d.name], function(c) { NV.cfg = c })
+                        NV.py.call("notivox_ui.add_app", [d.name], function(c) { NV.cfg = c; NV.refresh() })
                     })
                 }
             }
             MenuItem {
-                text: NV.t("Tout couper", "Turn all off")
-                onClicked: NV.py.call("notivox_ui.set_all_apps", [false, page.appNames()],
-                                   function(c) { NV.cfg = c })
+                text: NV.t("Tout ignorer dans le résumé", "Ignore all in the summary")
+                onClicked: NV.py.call("notivox_ui.set_all_apps", ["summary", "ignore", page.appNames()],
+                                      function(c) { NV.cfg = c; NV.refresh() })
             }
             MenuItem {
-                text: NV.t("Tout lire", "Read all")
-                onClicked: NV.py.call("notivox_ui.set_all_apps", [true, page.appNames()],
-                                   function(c) { NV.cfg = c })
+                text: NV.t("Tout ignorer à l'arrivée", "Ignore all on arrival")
+                onClicked: NV.py.call("notivox_ui.set_all_apps", ["arrival", "ignore", page.appNames()],
+                                      function(c) { NV.cfg = c; NV.refresh() })
             }
         }
 
         header: Column {
             width: list.width
             PageHeader { title: NV.t("Applications", "Apps") }
-            TextSwitch {
-                text: NV.t("Lire les nouvelles applications", "Read new apps")
-                description: NV.t("Réglage appliqué à une application la première fois qu'elle envoie une notification.",
-                                   "Applied to an app the first time it sends a notification.")
-                checked: NV.get(["new_apps_default"], false)
-                automaticCheck: false
-                onClicked: NV.setCfg(["new_apps_default"], !checked)
+            Label {
+                x: Theme.horizontalPageMargin
+                width: parent.width - 2 * x
+                wrapMode: Text.Wrap
+                font.pixelSize: Theme.fontSizeExtraSmall
+                color: Theme.secondaryHighlightColor
+                bottomPadding: Theme.paddingMedium
+                text: NV.t("Pour chaque application, choisissez ce qui est lu à l'arrivée d'une notification et dans le résumé vocal. Une nouvelle application est ignorée, sauf Messages et les appels, lus en entier.",
+                           "For each app, choose what is read when a notification arrives and in the spoken summary. A new app is ignored, except Messages and calls, read in full.")
             }
-            SectionHeader { text: NV.t("Applications connues", "Known apps") }
         }
 
         delegate: ListItem {
             id: item
-            property var s: page.setting(modelData)
+            property var e: NV.effective[modelData] || {}
             contentHeight: Math.max(Theme.itemSizeMedium, texts.height + 2 * Theme.paddingSmall)
             onClicked: pageStack.push(Qt.resolvedUrl("AppPage.qml"), { appName: modelData })
 
             Column {
                 id: texts
                 x: Theme.horizontalPageMargin
-                width: parent.width - x - sw.width - Theme.paddingMedium
+                width: parent.width - 2 * x
                 anchors.verticalCenter: parent.verticalCenter
                 Label {
                     width: parent.width
                     text: modelData
                     truncationMode: TruncationMode.Fade
-                    color: item.highlighted ? Theme.highlightColor : Theme.primaryColor
+                    color: item.e.arrival === "ignore" && item.e.summary === "ignore"
+                           ? (item.highlighted ? Theme.secondaryHighlightColor : Theme.secondaryColor)
+                           : (item.highlighted ? Theme.highlightColor : Theme.primaryColor)
                 }
                 Label {
                     width: parent.width
-                    text: {
-                        var c = item.s.content === "title" ? NV.t("titre seulement", "title only")
-                              : item.s.content === "app" ? NV.t("nom de l'application seulement", "app name only")
-                              : NV.t("titre et texte", "title and text")
-                        var seen = NV.seen[modelData]
-                        return seen && seen.sample ? c + " · " + seen.sample : c
-                    }
+                    text: NV.t("Arrivée : ", "Arrival: ") + NV.arrivalName(item.e.arrival) +
+                          (item.e.speaker && item.e.arrival !== "ignore" ? NV.t(" (haut-parleur)", " (speaker)") : "") +
+                          NV.t(" · Résumé : ", " · Summary: ") + NV.summaryName(item.e.summary)
                     truncationMode: TruncationMode.Fade
                     font.pixelSize: Theme.fontSizeExtraSmall
                     color: item.highlighted ? Theme.secondaryHighlightColor : Theme.secondaryColor
                 }
-            }
-            Switch {
-                id: sw
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                checked: item.s.read
-                automaticCheck: false
-                onClicked: NV.py.call("notivox_ui.set_app", [modelData, "read", !checked],
-                                   function(c) { NV.cfg = c })
             }
         }
 

@@ -137,7 +137,7 @@ if [ "$R" = "('speaker', 'sink.primary_output') True ('bluetooth', 'bluez_sink.6
 else echo "ÉCHEC réveil du casque : $R"; FAIL=1; fi
 
 echo "== notifications"
-run notif '{"new_apps_default": true, "apps": {"Météo": {"read": false}}, "debug": true}' 12
+run notif '{"apps": {"WhatsApp": {"arrival": "full"}, "Signal": {"arrival": "full"}}, "debug": true}' 12
 check "guillemets et retour à la ligne" 'Salut, on dit "midi" ou "13h" demain ?'
 check "doublon ignoré" "doublon ignoré"
 check "langue anglaise détectée (eSpeak de secours)" "lecture [en/espeak]"
@@ -147,34 +147,37 @@ plays "trois annonces jouées" 3
 grep -q '"Météo"' "$WORK/conf/apps-seen.json" && echo "ok    application coupée tout de même répertoriée" || { echo "ÉCHEC répertoire des applications"; FAIL=1; }
 
 echo "== pas d'écouteurs"
-OUTPUT=speaker run notif '{"new_apps_default": true, "debug": true}' 8
-check "rien n'est lu sur le haut-parleur" "pas d'écouteurs" 4
+OUTPUT=speaker run notif '{"apps": {"WhatsApp": {"arrival": "full"}, "Signal": {"arrival": "full"}}, "debug": true}' 8
+check "rien n'est lu sur le haut-parleur" "pas d'écouteurs" 3
 plays "aucune lecture" 0
+OUTPUT=speaker run notif '{"apps": {"Signal": {"arrival": "titles", "speaker": true}}, "debug": true}' 8
+check "application réglée sur le haut-parleur : titre seulement" "] vers défaut : Signal. Bob"
+plays "seule cette application est lue" 1
 
 echo "== appels"
-run call '{"new_apps_default": true, "debug": true, "calls": {"repeat": 2, "interval": 4, "first_delay": 1}}' 6
+run call '{"apps": {"WhatsApp": {"arrival": "full"}}, "debug": true, "calls": {"repeat": 2, "interval": 4, "first_delay": 1}}' 6
 check "nom du contact trouvé" "] vers défaut : Appel de Jean Dupont" 2
 check "notification ignorée pendant l'appel" "appel en cours"
 check "appel masqué annoncé" "] vers défaut : Appel masqué"
 plays "trois annonces d'appel" 3
 
 echo "== commandes (Situations)"
-run control '{"new_apps_default": true, "debug": true}' 8
+run control '{"apps": {"WhatsApp": {"arrival": "full"}}, "debug": true}' 8
 check "pause respectée" "notification non lue (en pause)"
 check "texte libre lu" "défaut : Texte libre envoyé par Situations"
 
 echo "== résumé de la Vue Événements"
-run summary '{"debug": true, "summary": {"clear_after": true}, "apps": {"Signal": {"summary": "full"}}}' 30
+run summary '{"debug": true, "summary": {"clear_after": true}, "apps": {"Signal": {"summary": "full"}, "WhatsApp": {"summary": "titles"}, "Courriel": {"summary": "count"}}}' 30
 check "date et heure annoncées" "Bonjour. Nous sommes le"
-check "total et applications" "Vous avez reçu 6 notifications, venant de Signal, Courriel"
-check "élision devant une voyelle" "notifications d'" 0
+check "total sans la liste des applications" "] vers défaut : Vous avez 6 notifications."
 check "décompte d'une application" "Vous avez 2 notifications de WhatsApp."
-check "messages numérotés" "1 : Alice Martin. Tu es dispo"
+check "pas de numéros" "1 : " 0
+check "titres seulement" "] vers défaut : Alice Martin" 2
 check "message anglais lu par une autre voix" "lecture [en/"
 check "courriels : nombre seulement" "La campagne d'entretiens" 0
-check "notifications système exclues par défaut" "Batterie faible" 0
+check "applications non réglées ignorées" "Batterie faible" 0
 check "formule de fin" "Fin de vos notifications. À bientôt."
-check "bip entre deux messages" "beep" 1
+check "bips autour et entre les notifications" "] vers défaut : beep" 9
 n=$(grep -c '^fermeture' "$WORK/bus.log")
 if [ "$n" -eq 4 ]; then echo "ok    quatre notifications lues puis effacées (nombre seul et appel non effaçable gardés)"
 else echo "ÉCHEC effacement : $n fermetures"; cat "$WORK/bus.log"; FAIL=1; fi

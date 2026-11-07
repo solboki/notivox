@@ -6,7 +6,7 @@ This project was vibe-coded with Claude Opus 5.5.
 
 ## What it does
 
-The service listens to every notification posted on the phone, native or from Android App Support. For each app you decide whether it is read, and whether Notivox reads the title and the text, the title only (to know who wrote without hearing the message), or just the app name.
+The service listens to every notification posted on the phone, native or from Android App Support. Everything is set per app, in the Apps page: when a notification arrives, it is ignored, read by its title only (to know who wrote without hearing the message), or read in full, in headphones or, if you allow it for that app, on the loudspeaker. A new app is ignored, except Messages and calls.
 
 For an incoming call, Notivox says the contact's name, or the number if it is not in your contacts, a few times while the phone rings. The announcements stop as soon as you answer or decline.
 
@@ -16,16 +16,16 @@ By default nothing is ever spoken on the phone's loudspeaker. Notivox only talks
 
 Each message is read by a voice in its own language when one is installed: a message in English is read by an English voice, a message in French by a French voice. Voices are downloaded from the settings page, from the public Piper voice repository, in more than fifty languages. For a language without a Piper voice, the much more robotic but very wide eSpeak NG voice can step in.
 
-A spoken summary reads the notifications still shown in the Events view: first how many each app has, then their content. It gives the date and time, the number of notifications per app, then their content. It can be started from the settings, from Situations (`notivox-ctl events`), or automatically when headphones connect. Notifications can optionally be cleared once read, and for each family of notifications (messages, missed calls, emails, calendar, system, other apps), and if needed each app, you choose whether it is skipped, only counted, or read in full.
+A spoken summary reads the notifications still shown in the Events view. After a greeting, and optionally the date, time and weather, it says how many notifications there are; then, app by app, according to that app's summary setting, it gives their count, their titles or their full content, framed by short beeps. It can be started from the settings, from Situations (`notivox-ctl events`, or `notivox-ctl events-speakers` to use the loudspeaker when no headphones are connected), or automatically when headphones connect. Notifications can optionally be cleared once read. The weather comes from the free Open-Meteo service and needs an Internet connection.
 
 Reading can be controlled in four ways: the main switch, a timed pause (15 minutes, one hour, two hours, until tomorrow morning), quiet hours by day and time, and the [Situations](https://forum.sailfishos.org/t/situations-application-feedback/16333) app through a command or a D-Bus signal.
 
 ## Installing
 
-Copy `notivox-1.3.0-1.aarch64.rpm` to the phone, then in a terminal:
+Copy `notivox-1.4.0-1.aarch64.rpm` to the phone, then in a terminal:
 
 ```
-devel-su pkcon install-local notivox-1.3.0-1.aarch64.rpm
+devel-su pkcon install-local notivox-1.4.0-1.aarch64.rpm
 ```
 
 The package is for 64-bit ARM phones (aarch64) and weighs about 21 MB, most of it being the Piper engine.

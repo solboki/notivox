@@ -30,7 +30,7 @@ import time
 import wave
 from array import array
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 
 HOME = os.path.expanduser("~")
 CONF_DIR = os.environ.get("NOTIVOX_CONF_DIR",
@@ -78,11 +78,13 @@ DEFAULT_CONFIG = {
     "skip_during_call": True,
     "announce_app": True,
     "max_chars": 300,
-    # Traitement des applications jamais réglées
-    "new_apps_default": False,
     # Réglages par application, indexés par le nom de l'application :
-    #   read : lire (bool) ; content : "full", "title" ou "app" ;
-    #   lang : "auto" ou code de langue
+    #   arrival : à l'arrivée d'une notification, "ignore", "titles" ou
+    #             "full" ; speaker : lire même sans écouteurs (bool) ;
+    #   summary : dans le résumé, "ignore", "count", "titles" ou "full" ;
+    #   lang : "auto" ou code de langue.
+    # Une application jamais réglée est ignorée, sauf Messages et les
+    # appels, lus en entier (voir default_mode).
     "apps": {},
     # Applications ignorées d'office (bruit du système)
     "ignored_apps": ["notivox", "Notivox"],
@@ -120,12 +122,14 @@ DEFAULT_CONFIG = {
         "clear_after": False,
         # Après le décompte par application, lire chaque notification
         "detail": True,
-        # Traitement de chaque famille : "none" (ne pas annoncer), "count"
-        # (annoncer le nombre) ou "full" (tout lire). Une application peut
-        # avoir son propre mode (réglage "summary" dans "apps").
-        "modes": {"messages": "full", "calls": "full", "email": "count",
-                  "calendar": "full", "system": "none", "other": "count"},
-        # Séparer les notifications lues par un bip (sinon un silence)
+        # Annoncer la date et l'heure après la salutation
+        "date_time": True,
+        # Annoncer la météo (Open-Meteo, connexion nécessaire) du lieu
+        # choisi : {"name": ..., "lat": ..., "lon": ...}
+        "weather": False,
+        "place": {},
+        # Encadrer chaque bloc lu de bips, et séparer ses notifications par
+        # un bip (sinon par un silence)
         "beep": True,
         # Nombre maximal de notifications lues en détail
         "max_items": 30,
@@ -651,8 +655,9 @@ SUMMARY_PHRASES = {
         "date": "Nous sommes le {weekday} {day} {month}.",
         "time": "Il est {h} heures {m}.", "time0": "Il est {h} heures.",
         "none": "Vous n'avez aucune notification.",
-        "total_1": "Vous avez reçu une notification, venant {de} {apps}.",
-        "total_n": "Vous avez reçu {n} notifications, venant {de} {apps}.",
+        "total_1": "Vous avez une notification.",
+        "total_n": "Vous avez {n} notifications.",
+        "weather": "Météo : {desc}, {t} degrés.",
         "group_1": "Vous avez une notification {de} {app}.",
         "group_n": "Vous avez {n} notifications {de} {app}.",
         "item": "{i} : {text}",
@@ -667,8 +672,9 @@ SUMMARY_PHRASES = {
         "date": "Today is {weekday}, {month} {day}.",
         "time": "It is {h12}:{m:02d} {ampm}.", "time0": "It is {h12} {ampm}.",
         "none": "You have no notifications.",
-        "total_1": "You have received one notification, from {apps}.",
-        "total_n": "You have received {n} notifications, from {apps}.",
+        "total_1": "You have one notification.",
+        "total_n": "You have {n} notifications.",
+        "weather": "Weather: {desc}, {t} degrees.",
         "group_1": "You have one {app} notification.",
         "group_n": "You have {n} {app} notifications.",
         "item": "{i}: {text}",
@@ -684,8 +690,9 @@ SUMMARY_PHRASES = {
         "date": "Heute ist {weekday}, der {day}. {month}.",
         "time": "Es ist {h} Uhr {m}.", "time0": "Es ist {h} Uhr.",
         "none": "Sie haben keine Benachrichtigungen.",
-        "total_1": "Sie haben eine Benachrichtigung erhalten, von {apps}.",
-        "total_n": "Sie haben {n} Benachrichtigungen erhalten, von {apps}.",
+        "total_1": "Sie haben eine Benachrichtigung.",
+        "total_n": "Sie haben {n} Benachrichtigungen.",
+        "weather": "Wetter: {desc}, {t} Grad.",
         "group_1": "Sie haben eine Benachrichtigung von {app}.",
         "group_n": "Sie haben {n} Benachrichtigungen von {app}.",
         "item": "{i}: {text}",
@@ -701,8 +708,9 @@ SUMMARY_PHRASES = {
         "date": "Hoy es {weekday} {day} de {month}.",
         "time": "Son las {h} y {m}.", "time0": "Son las {h}.",
         "none": "No tiene ninguna notificación.",
-        "total_1": "Ha recibido una notificación, de {apps}.",
-        "total_n": "Ha recibido {n} notificaciones, de {apps}.",
+        "total_1": "Tiene una notificación.",
+        "total_n": "Tiene {n} notificaciones.",
+        "weather": "Tiempo: {desc}, {t} grados.",
         "group_1": "Tiene una notificación de {app}.",
         "group_n": "Tiene {n} notificaciones de {app}.",
         "item": "{i}: {text}",
@@ -717,8 +725,9 @@ SUMMARY_PHRASES = {
         "date": "Oggi è {weekday} {day} {month}.",
         "time": "Sono le {h} e {m}.", "time0": "Sono le {h}.",
         "none": "Non ha nessuna notifica.",
-        "total_1": "Ha ricevuto una notifica, da {apps}.",
-        "total_n": "Ha ricevuto {n} notifiche, da {apps}.",
+        "total_1": "Ha una notifica.",
+        "total_n": "Ha {n} notifiche.",
+        "weather": "Meteo: {desc}, {t} gradi.",
         "group_1": "Ha una notifica di {app}.",
         "group_n": "Ha {n} notifiche di {app}.",
         "item": "{i}: {text}",
@@ -1351,18 +1360,60 @@ def clean(s):
     s = s.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
     s = s.replace("&quot;", '"').replace("&#39;", "'")
     # Les liens et les longues suites de symboles ne se lisent pas bien.
-    s = re.sub(r"https?://\S+", " ", s)
+    s = re.sub(r"(https?://|www\.)\S+", " ", s)
     s = re.sub(r"[☀-➿\U0001F000-\U0001FAFF️]", " ", s)
     return re.sub(r"\s+", " ", s).strip()
 
 
-def app_setting(app):
-    apps = CFG.get("apps", {})
-    if app in apps:
-        return merge({"read": CFG.get("new_apps_default", False),
-                      "content": "full", "lang": "auto"}, apps[app])
-    return {"read": CFG.get("new_apps_default", False), "content": "full",
-            "lang": "auto"}
+APP_DEFAULT_FULL = ("messages", "téléphone", "phone", "appels", "calls",
+                    "commhistoryd", "voicecall-ui")
+
+
+def default_mode(app, category=""):
+    """Mode d'une application jamais réglée : « full » pour Messages et les
+    appels, « ignore » pour toutes les autres."""
+    c = (category or "").lower()
+    if (app or "").strip().lower() in APP_DEFAULT_FULL or \
+            c.startswith(("x-nemo.call", "x-nemo.messaging.sms",
+                          "x-nemo.messaging.mms")):
+        return "full"
+    return "ignore"
+
+
+def app_setting(app, category=""):
+    """Réglages effectifs d'une application (les valeurs absentes prennent
+    leur valeur par défaut)."""
+    if not category:
+        category = SEEN.get(app, {}).get("category", "")
+    d = default_mode(app, category)
+    base = {"arrival": d, "summary": d, "speaker": False, "lang": "auto"}
+    own = CFG.get("apps", {}).get(app)
+    if isinstance(own, dict):
+        for k in base:
+            if own.get(k) is not None:
+                base[k] = own[k]
+    if base["arrival"] not in ("ignore", "titles", "full"):
+        base["arrival"] = d
+    if base["summary"] not in ("ignore", "count", "titles", "full"):
+        base["summary"] = d
+    return base
+
+
+def first_sentence(text, limit=90):
+    m = re.match(r"(.+?[.!?…])(\s|$)", text or "")
+    t = m.group(1) if m else (text or "")
+    if len(t) > limit:
+        t = t[:limit].rsplit(" ", 1)[0] + "…"
+    return t
+
+
+def title_of(app, summary, body):
+    """Titre d'une notification : son expéditeur ou son objet. Quand le
+    titre n'est que le nom de l'application (« Facebook »), on prend la
+    première phrase du texte."""
+    if summary and summary.strip().lower() != (app or "").strip().lower():
+        return summary
+    return first_sentence(body) or app
 
 
 def remember_app(app, sample, hints):
@@ -1397,8 +1448,9 @@ def on_session_message(head, vals):
     if not summary and not body:
         return
     remember_app(app, (summary + " : " + body).strip(" :"), hints)
-    st = app_setting(app)
-    if not st.get("read"):
+    st = app_setting(app, str(hints.get("category") or ""))
+    mode = st["arrival"]
+    if mode == "ignore":
         return
     key = (app, summary, body)
     now = time.time()
@@ -1409,18 +1461,25 @@ def on_session_message(head, vals):
             dbg("doublon ignoré")
             return
         RECENT[key] = now
-    reason = blocked_reason(call=False)
+    speaker_ok = bool(st.get("speaker"))
+    reason = blocked_reason(call=False, speaker_ok=speaker_ok)
     if reason:
         dbg("notification non lue (%s)" % reason)
         return
-    content = st.get("content", "full")
     parts = []
-    if CFG.get("announce_app", True) or content == "app":
+    if CFG.get("announce_app", True):
         parts.append(app)
-    if content in ("full", "title") and summary and summary != app:
-        parts.append(summary)
-    if content == "full" and body:
-        parts.append(body)
+    if mode == "titles":
+        t = title_of(app, summary, body)
+        if t and t != app:
+            parts.append(t)
+    else:
+        if summary and summary.strip().lower() != app.strip().lower():
+            parts.append(summary)
+        if body:
+            parts.append(body)
+    if not parts:
+        parts.append(app)
     text = ". ".join(p.rstrip(".") for p in parts if p)
     limit = int(CFG.get("max_chars", 300) or 300)
     if len(text) > limit:
@@ -1433,7 +1492,8 @@ def on_session_message(head, vals):
                                    default)
         else:
             lang = default
-    SPEAKER.say(text, lang=lang, prio=5)
+    SPEAKER.say(text, lang=lang, prio=5,
+                force="speaker" if speaker_ok else False)
 
 
 def on_control(member, vals):
@@ -1854,18 +1914,86 @@ def read_events():
         db.close()
 
 
-SUMMARY_MODES = ("none", "count", "full")
+# Description des codes météo de l'OMM (Open-Meteo), par langue :
+# dégagé, peu nuageux, nuageux, couvert, brouillard, bruine, pluie, neige,
+# averses, averses de neige, orage.
+WEATHER_WORDS = {
+    "fr": "ensoleillé|dégagé|peu nuageux|nuageux|couvert|brouillard|bruine|"
+          "pluie|neige|averses|averses de neige|orage",
+    "en": "sunny|clear|mostly clear|partly cloudy|overcast|fog|drizzle|"
+          "rain|snow|showers|snow showers|thunderstorm",
+    "de": "sonnig|klar|leicht bewölkt|bewölkt|bedeckt|Nebel|Nieselregen|"
+          "Regen|Schnee|Schauer|Schneeschauer|Gewitter",
+    "es": "soleado|despejado|poco nuboso|parcialmente nuboso|cubierto|"
+          "niebla|llovizna|lluvia|nieve|chubascos|chubascos de nieve|"
+          "tormenta",
+    "it": "soleggiato|sereno|poco nuvoloso|nuvoloso|coperto|nebbia|"
+          "pioviggine|pioggia|neve|rovesci|rovesci di neve|temporale",
+}
+_weather = {"time": 0.0, "key": None, "text": ""}
 
 
-def summary_mode(app, family):
-    """Mode d'une application dans le résumé : son réglage propre, sinon
-    celui de sa famille."""
-    sc = CFG.get("summary", {})
-    own = CFG.get("apps", {}).get(app, {}).get("summary")
-    if own in SUMMARY_MODES:
-        return own
-    mode = sc.get("modes", {}).get(family)
-    return mode if mode in SUMMARY_MODES else "count"
+def weather_desc(code, is_day, lang):
+    words = (WEATHER_WORDS.get(lang) or WEATHER_WORDS["en"]).split("|")
+    c = int(code)
+    if c == 0:
+        i = 0 if is_day else 1
+    elif c == 1:
+        i = 2
+    elif c == 2:
+        i = 3
+    elif c == 3:
+        i = 4
+    elif c in (45, 48):
+        i = 5
+    elif 51 <= c <= 57:
+        i = 6
+    elif 61 <= c <= 67:
+        i = 7
+    elif 71 <= c <= 77:
+        i = 8
+    elif 80 <= c <= 82:
+        i = 9
+    elif c in (85, 86):
+        i = 10
+    else:
+        i = 11
+    return words[i]
+
+
+def weather_phrase(lang):
+    """« Météo : nuageux, 17 degrés. » d'après Open-Meteo, ou "" en cas
+    d'échec (pas de réseau, lieu non choisi). Gardé vingt minutes."""
+    place = CFG.get("summary", {}).get("place") or {}
+    lat, lon = place.get("lat"), place.get("lon")
+    if lat is None or lon is None:
+        return ""
+    key = (round(float(lat), 3), round(float(lon), 3), lang)
+    if _weather["key"] == key and time.time() - _weather["time"] < 1200:
+        return _weather["text"]
+    import urllib.request
+    url = ("https://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s"
+           "&current=temperature_2m,weather_code,is_day" % (lat, lon))
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Notivox"})
+        with urllib.request.urlopen(req, timeout=4) as r:
+            cur = json.load(r)["current"]
+        text = sp("weather", lang).format(
+            desc=weather_desc(cur["weather_code"], cur.get("is_day", 1),
+                              lang),
+            t=int(round(float(cur["temperature_2m"]))))
+    except Exception as exc:
+        dbg("météo indisponible :", exc)
+        return ""
+    _weather.update(time=time.time(), key=key, text=text)
+    return text
+
+
+SUMMARY_MODES = ("ignore", "count", "titles", "full")
+
+
+def summary_mode(app, category=""):
+    return app_setting(app, category)["summary"]
 
 
 def sp(key, lang):
@@ -1888,7 +2016,6 @@ def de_app(app, lang):
 
 def date_phrase(lang, now=None):
     t = time.localtime(now or time.time())
-    hello = sp("evening" if t.tm_hour >= 18 else "hello", lang)
     wd = sp("weekdays", lang).split()[t.tm_wday]
     mo = sp("months", lang).split()[t.tm_mon - 1]
     day = t.tm_mday
@@ -1899,84 +2026,86 @@ def date_phrase(lang, now=None):
     ampm = "AM" if t.tm_hour < 12 else "PM"
     key = "time0" if t.tm_min == 0 else "time"
     hour = sp(key, lang).format(h=t.tm_hour, m=t.tm_min, h12=h12, ampm=ampm)
-    return "%s %s %s" % (hello, date, hour)
+    return "%s %s" % (date, hour)
 
 
 def build_summary(events, lang, now=None):
     """Prépare le résumé, sous forme d'une liste d'éléments :
       ("say", texte, langue, ids effaçables après lecture)
-      ("pause",) courte pause ; ("sep",) bip ou pause entre deux messages.
+      ("pause",) courte pause ; ("sep",) bip (ou pause) autour et entre les
+      notifications lues.
 
-    Forme : salutation, date et heure ; total et applications ; pour chaque
-    application, son nombre de notifications, puis, en mode « tout lire »,
-    chacune numérotée ; formule de fin."""
+    Forme : salutation, et en option date, heure et météo ; nombre total
+    de notifications ; pour chaque application, son nombre de
+    notifications, puis selon son réglage leurs titres ou leur contenu,
+    encadrés de bips ; formule de fin."""
     sc = CFG.get("summary", {})
-    groups, order = {}, []
+    groups = {}
     for e in events:
-        mode = summary_mode(e["app"], e["type"])
-        if mode == "none":
+        mode = summary_mode(e["app"], e["category"])
+        if mode == "ignore":
             continue
-        if e["app"] not in groups:
-            groups[e["app"]] = {"mode": mode, "items": []}
+        groups.setdefault(e["app"], {"mode": mode, "items": []})
         groups[e["app"]]["items"].append(e)
     # Applications les plus récemment actives d'abord, comme dans la Vue
     # Événements ; dans chaque application, ordre chronologique.
     order = sorted(groups, key=lambda a: -max(e["id"] for e in
                                               groups[a]["items"]))
-    out = [("say", date_phrase(lang, now), lang, []), ("pause",)]
+    t = time.localtime(now or time.time())
+    intro = [sp("evening" if t.tm_hour >= 18 else "hello", lang)]
+    if sc.get("date_time", True):
+        intro.append(date_phrase(lang, now))
+    if sc.get("weather"):
+        w = weather_phrase(lang)
+        if w:
+            intro.append(w)
+    out = [("say", " ".join(x for x in intro if x), lang, []), ("pause",)]
     total = sum(len(groups[a]["items"]) for a in order)
     if not total:
         out.append(("say", sp("none", lang) + " " +
                     sp("end", lang).split(".")[-2].strip() + ".", lang, []))
         return out
     out.append(("say", sp("total_1" if total == 1 else "total_n", lang)
-                .format(n=total, apps=join_names(order, lang),
-                        de=de_app(order[0], lang)[0].strip())
-                .replace("d' ", "d'"), lang, []))
+                .format(n=total), lang, []))
     out.append(("pause",))
     limit = max(1, int(sc.get("max_items", 30) or 30))
     maxc = int(CFG.get("max_chars", 300) or 300)
-    told = 0
+    told = skipped = 0
     for app in order:
         g = groups[app]["items"]
+        mode = groups[app]["mode"]
         de, name = de_app(app, lang)
         out.append(("say", sp("group_1" if len(g) == 1 else "group_n", lang)
                     .format(n=len(g), app=name, de=de.strip())
                     .replace("d' ", "d'"), lang, []))
-        out.append(("pause",))
-        if groups[app]["mode"] != "full":
+        if mode == "count":
+            out.append(("pause",))
             continue
-        content = app_setting(app).get("content", "full") \
-            if app in CFG.get("apps", {}) else "full"
-        for i, e in enumerate(g, 1):
+        out.append(("sep",))
+        for e in g:
             if told >= limit:
-                break
-            sender, body = e["summary"], e["body"]
-            if content == "title" or content == "app":
-                body = ""
-            if sender.strip().lower() == app.strip().lower():
-                sender = ""
-            text = ". ".join(x for x in (sender, body) if x) or app
+                skipped += 1
+                continue
+            if mode == "titles":
+                text = title_of(app, e["summary"], e["body"])
+            else:
+                sender = e["summary"]
+                if sender.strip().lower() == app.strip().lower():
+                    sender = ""
+                text = ". ".join(x for x in (sender, e["body"]) if x) or app
             if len(text) > maxc:
                 text = text[:maxc].rsplit(" ", 1)[0] + "…"
-            if len(g) > 1:
-                text = sp("item", lang).format(i=i, text=text)
             item_lang = lang
             if CFG.get("detect_language", True):
                 item_lang = detect_language(e["summary"] + " " + e["body"],
                                             candidate_langs(), lang)
-            if i > 1:
-                out.append(("sep",))
             out.append(("say", text, item_lang,
                         [e["id"]] if e["removable"] else []))
+            out.append(("sep",))
             told += 1
-        out.append(("pause",))
-    full_total = sum(len(groups[a]["items"]) for a in order
-                     if groups[a]["mode"] == "full")
-    if told < full_total:
-        out.append(("say", sp("more", lang).format(n=full_total - told),
-                    lang, []))
-        out.append(("pause",))
+    if skipped:
+        out.append(("say", sp("more", lang).format(n=skipped), lang, []))
+    out.append(("pause",))
     out.append(("say", sp("end", lang), lang, []))
     return out
 
@@ -2044,8 +2173,8 @@ def speak_summary(manual=False, force=False):
         events = []
     parts = build_summary(events, lang)
     if not manual:
-        if not any(p[0] == "say" and p[3] for p in parts) and \
-                len(parts) <= 3:
+        if not any(summary_mode(e["app"], e["category"]) != "ignore"
+                   for e in events):
             dbg("résumé automatique : rien à lire")
             return
         shown = sorted(e["id"] for e in events)
@@ -2172,13 +2301,31 @@ def migrate(cfg):
     if calls.get("first_delay") == 1.5:
         calls["first_delay"] = 0
         changed = True
+    # 1.4.0 : tout se règle par application (arrivée et résumé) ; les
+    # réglages par famille disparaissent.
     sm = cfg.get("summary", {})
-    if isinstance(sm.get("types"), dict):
-        modes = sm.setdefault("modes", dict(DEFAULT_CONFIG["summary"]["modes"]))
-        for fam, on in sm.pop("types").items():
-            if not on:
-                modes[fam] = "none"
+    for k in ("types", "modes", "detail"):
+        if k in sm:
+            sm.pop(k)
+            changed = True
+    if "new_apps_default" in cfg:
+        cfg.pop("new_apps_default")
         changed = True
+    for app, a in list(cfg.get("apps", {}).items()):
+        if not isinstance(a, dict):
+            continue
+        if "read" in a:
+            content = a.pop("content", "full")
+            a["arrival"] = ("titles" if content in ("title", "app")
+                            else "full") if a.pop("read") else "ignore"
+            changed = True
+        a.pop("content", None)
+        if a.get("summary") == "none":
+            a["summary"] = "ignore"
+            changed = True
+        elif a.get("summary") == "family":
+            a.pop("summary")
+            changed = True
     return changed
 
 
@@ -2223,8 +2370,9 @@ def main():
             return
         print("%d notifications dans la Vue Événements :" % len(events))
         for e in events:
-            print("  [%d] %s (%s) | %s | %s : %s%s" % (
-                e["id"], e["type"], summary_mode(e["app"], e["type"]),
+            st = app_setting(e["app"], e["category"])
+            print("  [%d] arrivée %s, résumé %s | %s | %s : %s%s" % (
+                e["id"], st["arrival"], st["summary"],
                 e["app"], e["category"] or "-",
                 (e["summary"] + " / " + e["body"])[:70],
                 "" if e["removable"] else " (non effaçable)"))

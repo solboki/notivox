@@ -14,6 +14,7 @@ Item {
     property var cfg: ({})
     property var st: ({ enabled: true, pause_until: 0 })
     property var seen: ({})
+    property var effective: ({})
     property var status: ({})
     property bool alive: false
     property var voices: []
@@ -37,7 +38,25 @@ Item {
     }
 
     function setCfg(path, value) {
-        py.call("notivox_ui.set_value", [path, value], function(c) { cfg = c })
+        py.call("notivox_ui.set_value", [path, value], function(c) { cfg = c; refresh() })
+    }
+
+    // Réglage effectif d'une application (valeur par défaut comprise)
+    function appCfg(app, key) {
+        var e = effective[app]
+        return e ? e[key] : (key === "speaker" ? false : (key === "lang" ? "auto" : "ignore"))
+    }
+    function setApp(app, key, value) {
+        py.call("notivox_ui.set_app", [app, key, value], function(c) { cfg = c; refresh() })
+    }
+    function arrivalName(m) {
+        return m === "full" ? t("tout lire", "read everything")
+             : m === "titles" ? t("titres", "titles") : t("ignorer", "ignore")
+    }
+    function summaryName(m) {
+        return m === "full" ? t("tout lire", "read everything")
+             : m === "titles" ? t("titres", "titles")
+             : m === "count" ? t("nombre", "count") : t("ignorer", "ignore")
     }
 
     function refresh() {
@@ -45,6 +64,7 @@ Item {
             cfg = r.config
             st = r.state
             seen = r.seen
+            effective = r.effective
             status = r.status
             alive = r.alive
             voices = r.voices

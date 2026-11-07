@@ -1,5 +1,5 @@
 Name:       notivox
-Version:    1.3.0
+Version:    1.4.0
 Release:    1
 Summary:    Reads notifications and incoming calls aloud in your headphones
 License:    GPL-3.0-or-later
@@ -105,6 +105,13 @@ systemctl-user daemon-reload >/dev/null 2>&1 || :
 %{_datadir}/translations/settings-notivox*.qm
 
 %changelog
+* Sat Nov 07 2026 Boris Solodki <solboki@solodki.fr> - 1.4.0-1
+- Everything is set per app: on arrival (ignore, titles, everything, and
+  optionally on the speaker) and in the summary (ignore, count, titles,
+  everything). New apps are ignored, except Messages and calls.
+- Lighter summary: total only, optional date and time, optional weather
+  (Open-Meteo), beeps around and between the notifications read, no
+  numbering.
 * Sat Nov 07 2026 Boris Solodki <solboki@solodki.fr> - 1.3.0-1
 - New summary form: greeting, date and time, total, count per app,
   numbered messages separated by a beep, closing sentence.

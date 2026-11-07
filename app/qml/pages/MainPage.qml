@@ -125,19 +125,14 @@ Page {
                 page: "AppsPage.qml"
                 function appsSummary() {
                     var n = 0, on = 0
-                    var apps = NV.get(["apps"], {})
-                    var names = {}
-                    for (var a in NV.seen) names[a] = true
-                    for (var b in apps) names[b] = true
-                    var def = NV.get(["new_apps_default"], false)
-                    for (var k in names) {
+                    for (var k in NV.effective) {
                         n++
-                        var r = (apps[k] && apps[k].read !== undefined) ? apps[k].read : def
-                        if (r) on++
+                        var e = NV.effective[k]
+                        if (e.arrival !== "ignore" || e.summary !== "ignore") on++
                     }
                     if (n === 0)
                         return NV.t("Aucune notification reçue pour l'instant", "No notification received yet")
-                    return on + " / " + n + NV.t(" lues", " read")
+                    return on + " / " + n + NV.t(" lues à l'arrivée ou dans le résumé", " read on arrival or in the summary")
                 }
             }
             NavItem {

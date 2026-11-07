@@ -88,14 +88,47 @@ def service_active():
         return False
 
 
+# Même règle que le service (notivox-daemon, default_mode) : une
+# application jamais réglée est ignorée, sauf Messages et les appels.
+APP_DEFAULT_FULL = ("messages", "téléphone", "phone", "appels", "calls",
+                    "commhistoryd", "voicecall-ui")
+
+
+def default_mode(app, category=""):
+    c = (category or "").lower()
+    if (app or "").strip().lower() in APP_DEFAULT_FULL or \
+            c.startswith(("x-nemo.call", "x-nemo.messaging.sms",
+                          "x-nemo.messaging.mms")):
+        return "full"
+    return "ignore"
+
+
+def effective(cfg, seen):
+    """Réglages effectifs de chaque application connue."""
+    apps = cfg.get("apps", {}) if isinstance(cfg.get("apps"), dict) else {}
+    out = {}
+    for app in set(seen) | set(apps):
+        d = default_mode(app, (seen.get(app) or {}).get("category", ""))
+        own = apps.get(app) if isinstance(apps.get(app), dict) else {}
+        e = {"arrival": d, "summary": d, "speaker": False, "lang": "auto"}
+        for k in e:
+            if own.get(k) is not None:
+                e[k] = own[k]
+        out[app] = e
+    return out
+
+
 def load():
     """Tout ce que l'interface affiche, en un seul appel."""
     status = _load(STATUS_FILE, {})
     alive = bool(status) and time.time() - status.get("time", 0) < 20
+    cfg = _load(CONFIG_FILE, {})
+    seen = _load(SEEN_FILE, {})
     return {
-        "config": _load(CONFIG_FILE, {}),
+        "config": cfg,
+        "effective": effective(cfg, seen),
         "state": _load(STATE_FILE, {"enabled": True, "pause_until": 0}),
-        "seen": _load(SEEN_FILE, {}),
+        "seen": seen,
         "status": status,
         "alive": alive,
         "voices": installed(),
@@ -125,11 +158,11 @@ def set_app(app, key, value):
     return cfg
 
 
-def set_all_apps(read, names):
+def set_all_apps(key, value, names):
     cfg = _load(CONFIG_FILE, {})
     apps = cfg.setdefault("apps", {})
     for n in names:
-        apps.setdefault(n, {})["read"] = bool(read)
+        apps.setdefault(n, {})[key] = value
     _save(CONFIG_FILE, cfg)
     return cfg
 
@@ -138,7 +171,7 @@ def add_app(app):
     app = (app or "").strip()
     if not app:
         return _load(CONFIG_FILE, {})
-    return set_app(app, "read", True)
+    return set_app(app, "arrival", "full")
 
 
 def forget_app(app):
@@ -201,6 +234,28 @@ def test_voice(key):
 
 def test_lang(lang):
     _signal("Test", "string:" + (lang or ""))
+
+
+def find_place(name):
+    """Cherche un lieu pour la météo (service de géocodage d'Open-Meteo)
+    et l'enregistre. Renvoie le nom retenu, ou "" si rien n'est trouvé."""
+    import urllib.parse
+    url = ("https://geocoding-api.open-meteo.com/v1/search?count=1"
+           "&language=fr&name=" + urllib.parse.quote(name.strip()))
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Notivox"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            res = json.load(r).get("results") or []
+    except Exception:
+        return ""
+    if not res:
+        return ""
+    r = res[0]
+    label = ", ".join(x for x in (r.get("name"), r.get("admin1"),
+                                  r.get("country")) if x)
+    set_value(["summary", "place"], {"name": label, "lat": r["latitude"],
+                                     "lon": r["longitude"]})
+    return label
 
 
 def summary(force=True):

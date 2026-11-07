@@ -6,24 +6,15 @@ Page {
     id: page
     property string appName
 
-    property var s: {
-        var apps = NV.get(["apps"], {})
-        var x = apps[appName] || {}
-        return {
-            read: x.read !== undefined ? x.read : NV.get(["new_apps_default"], false),
-            content: x.content || "full",
-            lang: x.lang || "auto"
-        }
-    }
+    property string arrival: NV.appCfg(appName, "arrival")
+    property string summary: NV.appCfg(appName, "summary")
+    property bool speaker: NV.appCfg(appName, "speaker")
+    property string lang: NV.appCfg(appName, "lang")
     property var langs: ["auto"].concat(NV.installedLangs())
-
-    function setApp(key, value) {
-        NV.py.call("notivox_ui.set_app", [appName, key, value], function(c) { NV.cfg = c })
-    }
 
     SilicaFlickable {
         anchors.fill: parent
-        contentHeight: col.height
+        contentHeight: col.height + Theme.paddingLarge
 
         PullDownMenu {
             MenuItem {
@@ -42,59 +33,61 @@ Page {
             width: parent.width
             PageHeader { title: page.appName }
 
-            TextSwitch {
-                text: NV.t("Lire ses notifications", "Read its notifications")
-                checked: page.s.read
-                automaticCheck: false
-                onClicked: page.setApp("read", !checked)
-            }
+            SectionHeader { text: NV.t("À l'arrivée d'une notification", "When a notification arrives") }
 
             ComboBox {
-                label: NV.t("Contenu lu", "Content read")
-                enabled: page.s.read
-                currentIndex: page.s.content === "title" ? 1 : page.s.content === "app" ? 2 : 0
+                property var modes: ["ignore", "titles", "full"]
+                label: NV.t("Lecture", "Reading")
+                currentIndex: Math.max(0, modes.indexOf(page.arrival))
                 menu: ContextMenu {
-                    MenuItem { text: NV.t("Titre et texte", "Title and text"); onClicked: page.setApp("content", "full") }
-                    MenuItem { text: NV.t("Titre seulement", "Title only"); onClicked: page.setApp("content", "title") }
-                    MenuItem { text: NV.t("Nom de l'application seulement", "App name only"); onClicked: page.setApp("content", "app") }
+                    MenuItem { text: NV.t("Ignorer", "Ignore"); onClicked: NV.setApp(page.appName, "arrival", "ignore") }
+                    MenuItem { text: NV.t("Lire les titres", "Read the titles"); onClicked: NV.setApp(page.appName, "arrival", "titles") }
+                    MenuItem { text: NV.t("Tout lire", "Read everything"); onClicked: NV.setApp(page.appName, "arrival", "full") }
                 }
-                description: NV.t("« Titre seulement » annonce l'expéditeur sans lire le message.",
-                                   "\"Title only\" announces the sender without reading the message.")
+                description: NV.t("« Lire les titres » annonce l'expéditeur ou l'objet, sans le message.",
+                                  "\"Read the titles\" announces the sender or subject, without the message.")
             }
+            TextSwitch {
+                text: NV.t("Lire sur le haut-parleur sans écouteurs", "Read on the speaker without headphones")
+                description: NV.t("Sinon, les notifications de cette application ne sont lues que dans les écouteurs.",
+                                  "Otherwise this app's notifications are only read in headphones.")
+                enabled: page.arrival !== "ignore"
+                checked: page.speaker
+                automaticCheck: false
+                onClicked: NV.setApp(page.appName, "speaker", !checked)
+            }
+
+            SectionHeader { text: NV.t("Dans le résumé vocal", "In the spoken summary") }
+
+            ComboBox {
+                property var modes: ["ignore", "count", "titles", "full"]
+                label: NV.t("Lecture", "Reading")
+                currentIndex: Math.max(0, modes.indexOf(page.summary))
+                menu: ContextMenu {
+                    MenuItem { text: NV.t("Ignorer", "Ignore"); onClicked: NV.setApp(page.appName, "summary", "ignore") }
+                    MenuItem { text: NV.t("Indiquer le nombre", "Give the count"); onClicked: NV.setApp(page.appName, "summary", "count") }
+                    MenuItem { text: NV.t("Lire les titres", "Read the titles"); onClicked: NV.setApp(page.appName, "summary", "titles") }
+                    MenuItem { text: NV.t("Tout lire", "Read everything"); onClicked: NV.setApp(page.appName, "summary", "full") }
+                }
+            }
+
+            SectionHeader { text: NV.t("Voix", "Voice") }
 
             ComboBox {
                 label: NV.t("Langue", "Language")
-                enabled: page.s.read
-                currentIndex: Math.max(0, page.langs.indexOf(page.s.lang))
+                enabled: page.arrival !== "ignore" || page.summary === "titles" || page.summary === "full"
+                currentIndex: Math.max(0, page.langs.indexOf(page.lang))
                 menu: ContextMenu {
                     Repeater {
                         model: page.langs
                         MenuItem {
                             text: modelData === "auto" ? NV.t("Automatique", "Automatic") : NV.langName(modelData)
-                            onClicked: page.setApp("lang", modelData)
+                            onClicked: NV.setApp(page.appName, "lang", modelData)
                         }
                     }
                 }
                 description: NV.t("En automatique, la langue est devinée pour chaque message.",
-                                   "When automatic, the language is guessed for each message.")
-            }
-
-            ComboBox {
-                property var modes: ["family", "none", "count", "full"]
-                property string cur: {
-                    var a = NV.get(["apps"], {})[page.appName]
-                    return a && a.summary ? a.summary : "family"
-                }
-                label: NV.t("Dans le résumé", "In the summary")
-                currentIndex: Math.max(0, modes.indexOf(cur))
-                menu: ContextMenu {
-                    MenuItem { text: NV.t("Comme sa famille", "Like its family"); onClicked: page.setApp("summary", "family") }
-                    MenuItem { text: NV.t("Ne pas annoncer", "Do not announce"); onClicked: page.setApp("summary", "none") }
-                    MenuItem { text: NV.t("Annoncer le nombre", "Announce the count"); onClicked: page.setApp("summary", "count") }
-                    MenuItem { text: NV.t("Tout lire", "Read everything"); onClicked: page.setApp("summary", "full") }
-                }
-                description: NV.t("Le résumé de la Vue Événements traite chaque application selon sa famille (messages, courriels…), sauf réglage contraire ici.",
-                                  "The Events view summary handles each app according to its family (messages, emails…), unless set otherwise here.")
+                                  "When automatic, the language is guessed for each message.")
             }
 
             SectionHeader {
