@@ -203,6 +203,18 @@ def test_lang(lang):
     _signal("Test", "string:" + (lang or ""))
 
 
+def summary(force=True):
+    """Bouton des réglages : lit le résumé, même sans écouteurs."""
+    if force:
+        _signal("Summary", "string:force")
+    else:
+        _signal("Summary")
+
+
+def stop():
+    _signal("Stop")
+
+
 def say(text):
     _signal("Say", "string:" + text, "string:")
 

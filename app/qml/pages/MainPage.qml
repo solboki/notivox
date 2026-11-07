@@ -141,6 +141,13 @@ Page {
                 }
             }
             NavItem {
+                title: NV.t("Résumé vocal", "Spoken summary")
+                subtitle: NV.get(["summary", "on_headset"], false)
+                          ? NV.t("Lu à la connexion des écouteurs", "Read when headphones connect")
+                          : NV.t("Sur demande", "On demand")
+                page: "SummaryPage.qml"
+            }
+            NavItem {
                 title: NV.t("Appels entrants", "Incoming calls")
                 subtitle: NV.get(["calls", "enabled"], true)
                           ? NV.t("Nom de l'appelant annoncé", "Caller name announced")

@@ -1,5 +1,5 @@
 Name:       notivox
-Version:    1.1.1
+Version:    1.2.0
 Release:    1
 Summary:    Reads notifications and incoming calls aloud in your headphones
 License:    GPL-3.0-or-later
@@ -41,7 +41,7 @@ tar -xzf %{SOURCE1} -C piper-bin
 %install
 install -Dm755 sailfish/notivox-daemon %{buildroot}%{_bindir}/notivox-daemon
 install -Dm755 sailfish/notivox-ctl %{buildroot}%{_bindir}/notivox-ctl
-install -Dm755 build/notivox-contacts %{buildroot}%{_libexecdir}/notivox/notivox-contacts
+install -Dm755 build/notivox-helper %{buildroot}%{_libexecdir}/notivox/notivox-helper
 install -Dm644 sailfish/notivox.service %{buildroot}%{_userunitdir}/notivox.service
 mkdir -p %{buildroot}%{_userunitdir}/user-session.target.wants
 ln -s ../notivox.service %{buildroot}%{_userunitdir}/user-session.target.wants/notivox.service
@@ -94,7 +94,7 @@ systemctl-user daemon-reload >/dev/null 2>&1 || :
 %{_bindir}/notivox-daemon
 %{_bindir}/notivox-ctl
 %dir %{_libexecdir}/notivox
-%attr(2755,root,privileged) %{_libexecdir}/notivox/notivox-contacts
+%attr(2755,root,privileged) %{_libexecdir}/notivox/notivox-helper
 %{_libexecdir}/notivox/notivox-place-entry
 %{_userunitdir}/notivox.service
 %{_userunitdir}/user-session.target.wants/notivox.service
@@ -105,6 +105,10 @@ systemctl-user daemon-reload >/dev/null 2>&1 || :
 %{_datadir}/translations/settings-notivox*.qm
 
 %changelog
+* Sat Nov 07 2026 Boris Solodki <solboki@solodki.fr> - 1.2.0-1
+- Spoken summary of the Events view: count per app, then full reading.
+  Started from the settings, from Situations, or when headphones connect.
+- Option to clear notifications once read, choice of notification families.
 * Fri Nov 06 2026 Boris Solodki <solboki@solodki.fr> - 1.1.1-1
 - Settings entry placed right after "Sounds and feedback".
 - Line icon in the Sailfish theme style, black on light ambiences and

@@ -30,7 +30,7 @@ import time
 import wave
 from array import array
 
-VERSION = "1.1.1"
+VERSION = "1.2.0"
 
 HOME = os.path.expanduser("~")
 CONF_DIR = os.environ.get("NOTIVOX_CONF_DIR",
@@ -47,8 +47,11 @@ STATUS_FILE = os.path.join(CACHE_DIR, "status.json")
 
 SHARE = os.environ.get("NOTIVOX_SHARE", "/usr/share/notivox")
 PIPER_DIR = os.environ.get("NOTIVOX_PIPER_DIR", os.path.join(SHARE, "piper"))
-CONTACTS_HELPER = os.environ.get("NOTIVOX_CONTACTS_HELPER",
-                                 "/usr/libexec/notivox/notivox-contacts")
+HELPER = os.environ.get("NOTIVOX_HELPER",
+                        "/usr/libexec/notivox/notivox-helper")
+# Copie privée des notifications de la Vue Événements (fournie par HELPER) ;
+# NOTIVOX_EVENTS_DB permet de désigner une autre base pour les essais.
+EVENTS_DB = os.environ.get("NOTIVOX_EVENTS_DB", "")
 CONTACTS_DB = os.path.join(
     HOME, ".local/share/system/privileged/Contacts/qtcontacts-sqlite/"
     "contacts.db")
@@ -109,6 +112,19 @@ DEFAULT_CONFIG = {
         # Sailfish sur le haut-parleur : les appels utilisent donc le même
         # type de flux que les notifications.
         "call_props": "media.role=notification",
+    },
+    "summary": {
+        # Lire le résumé quand des écouteurs sont branchés ou connectés
+        "on_headset": False,
+        # Effacer de la Vue Événements les notifications lues en entier
+        "clear_after": False,
+        # Après le décompte par application, lire chaque notification
+        "detail": True,
+        # Familles de notifications prises en compte
+        "types": {"messages": True, "calls": True, "email": True,
+                  "calendar": True, "system": False, "other": True},
+        # Nombre maximal de notifications lues en détail
+        "max_items": 30,
     },
     "debug": False,
 }
@@ -623,10 +639,22 @@ PHRASES = {
            "test": "Привет, это проверка Notivox."},
 }
 
+
+# Phrases du résumé vocal ; les autres langues utilisent l'anglais.
+SUMMARY_PHRASES = {'fr': {'sum_none': 'Aucune notification.', 'sum_total_1': 'Une notification.', 'sum_total_n': '{} notifications.', 'sum_messages_1': 'un message', 'sum_messages_n': '{} messages', 'sum_calls_1': 'un appel manqué', 'sum_calls_n': '{} appels manqués', 'sum_email_1': 'un courriel', 'sum_email_n': '{} courriels', 'sum_other_1': 'une notification', 'sum_other_n': '{} notifications', 'sum_detail': 'Détail.', 'sum_end': 'Fin du résumé.', 'sum_more': 'Et {} autres notifications.'},
+    'en': {'sum_none': 'No notifications.', 'sum_total_1': 'One notification.', 'sum_total_n': '{} notifications.', 'sum_messages_1': 'one message', 'sum_messages_n': '{} messages', 'sum_calls_1': 'one missed call', 'sum_calls_n': '{} missed calls', 'sum_email_1': 'one email', 'sum_email_n': '{} emails', 'sum_other_1': 'one notification', 'sum_other_n': '{} notifications', 'sum_detail': 'Details.', 'sum_end': 'End of summary.', 'sum_more': 'And {} more notifications.'},
+    'de': {'sum_none': 'Keine Benachrichtigungen.', 'sum_total_1': 'Eine Benachrichtigung.', 'sum_total_n': '{} Benachrichtigungen.', 'sum_messages_1': 'eine Nachricht', 'sum_messages_n': '{} Nachrichten', 'sum_calls_1': 'ein verpasster Anruf', 'sum_calls_n': '{} verpasste Anrufe', 'sum_email_1': 'eine E-Mail', 'sum_email_n': '{} E-Mails', 'sum_other_1': 'eine Benachrichtigung', 'sum_other_n': '{} Benachrichtigungen', 'sum_detail': 'Im Einzelnen.', 'sum_end': 'Ende der Zusammenfassung.', 'sum_more': 'Und {} weitere Benachrichtigungen.'},
+    'es': {'sum_none': 'Ninguna notificación.', 'sum_total_1': 'Una notificación.', 'sum_total_n': '{} notificaciones.', 'sum_messages_1': 'un mensaje', 'sum_messages_n': '{} mensajes', 'sum_calls_1': 'una llamada perdida', 'sum_calls_n': '{} llamadas perdidas', 'sum_email_1': 'un correo', 'sum_email_n': '{} correos', 'sum_other_1': 'una notificación', 'sum_other_n': '{} notificaciones', 'sum_detail': 'Detalle.', 'sum_end': 'Fin del resumen.', 'sum_more': 'Y {} notificaciones más.'},
+    'it': {'sum_none': 'Nessuna notifica.', 'sum_total_1': 'Una notifica.', 'sum_total_n': '{} notifiche.', 'sum_messages_1': 'un messaggio', 'sum_messages_n': '{} messaggi', 'sum_calls_1': 'una chiamata persa', 'sum_calls_n': '{} chiamate perse', 'sum_email_1': 'una email', 'sum_email_n': '{} email', 'sum_other_1': 'una notifica', 'sum_other_n': '{} notifiche', 'sum_detail': 'Dettaglio.', 'sum_end': 'Fine del riepilogo.', 'sum_more': 'E altre {} notifiche.'}}
+for _l, _p in SUMMARY_PHRASES.items():
+    PHRASES.setdefault(_l, {}).update(_p)
+
 STOPWORDS = {
     "fr": "le la les de des du un une et est pas que qui pour dans sur "
           "avec vous je tu il elle on nous ce cette au aux mais ou ne plus "
-          "suis es sont salut bonjour merci oui non ça va demain ce soir",
+          "suis es sont salut bonjour merci oui non ça va demain ce soir "
+          "se d l qu n s c j à en y votre vos notre nos leur mon ma mes ton "
+          "ta tes son sa ses été être avez avons fait très bien",
     "en": "the and is are you to of in it for on with this that have be "
           "at not your from can will hi hello thanks yes no my me we what",
     "de": "der die das und ist nicht ich du sie wir ein eine zu mit auf "
@@ -691,7 +719,9 @@ def detect_language(text, candidates, default):
     best = max(scores, key=lambda k: (scores[k], k == default))
     # Il faut au moins deux mots outils reconnus, et plus que pour la
     # langue par défaut : un seul « moi » ne fait pas un texte finnois.
-    if scores[best] < 2 or scores.get(default, 0) >= scores[best]:
+    # Il faut aussi une nette avance sur la langue par défaut : deux
+    # langues voisines partagent beaucoup de petits mots (« la », « se »).
+    if scores[best] < 2 or scores[best] - scores.get(default, 0) < 2:
         return default
     return best
 
@@ -991,7 +1021,8 @@ class Speaker(threading.Thread):
         self.last_error = ""
 
     def say(self, text, lang=None, prio=5, props_key="notification_props",
-            tag=None, force=False, voice=None):
+            tag=None, force=False, voice=None, done=None):
+        """done : fonction appelée si l'annonce a été jouée jusqu'au bout."""
         with self.lock:
             self.seq += 1
             # Au-delà de cinq notifications en attente, on oublie les plus
@@ -1006,7 +1037,7 @@ class Speaker(threading.Thread):
                 for k in calls + notifs:
                     self.q.put(k)
             self.q.put((prio, self.seq, text, lang, props_key, tag, force,
-                        voice))
+                        voice, done))
             cur = self.current
         if cur and prio < cur[0]:
             self.interrupt()
@@ -1035,10 +1066,12 @@ class Speaker(threading.Thread):
     def run(self):
         os.makedirs(CACHE_DIR, exist_ok=True)
         while True:
-            prio, _seq, text, lang, props_key, tag, force, voice = \
+            prio, _seq, text, lang, props_key, tag, force, voice, done = \
                 self.q.get()
             try:
-                self.speak(prio, text, lang, props_key, tag, force, voice)
+                if self.speak(prio, text, lang, props_key, tag, force,
+                              voice) and done:
+                    done()
             except Exception as exc:
                 self.last_error = str(exc)
                 log("échec de la lecture :", exc)
@@ -1090,14 +1123,15 @@ class Speaker(threading.Thread):
         return out, voice
 
     def speak(self, prio, text, lang, props_key, tag, force, want=None):
-        if prio < 5:
+        """Joue une annonce. Renvoie True si elle a été entendue en entier."""
+        is_call = props_key == "call_props"
+        if is_call:
             forget_route()
-        if not force and not may_speak(call=prio < 5):
+        if not force and not may_speak(call=is_call):
             dbg("lecture annulée au dernier moment :", text[:60])
-            return
+            return False
         lang = lang or CFG.get("language", "fr")
-        out, voice = self.render(text, lang, want, cache=prio < 5 and
-                                 props_key == "call_props")
+        out, voice = self.render(text, lang, want, cache=is_call)
         props = parse_props(CFG.get("audio", {}).get(props_key, ""))
         props.append(("media.title", "Notivox"))
         kind, device = audio_route()
@@ -1122,7 +1156,10 @@ class Speaker(threading.Thread):
         finally:
             self.current = None
         self.last_spoken = text[:120]
-        self.last_error = ""
+        if p.returncode == 0:
+            self.last_error = ""
+            return True
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -1324,6 +1361,17 @@ def on_control(member, vals):
                                        CFG.get("language", "fr"))
             SPEAKER.say(text, lang=lang, prio=1, force=True)
         return
+    elif member == "Summary":
+        # « force » (bouton des réglages) : lu même sans écouteurs.
+        threading.Thread(target=speak_summary, daemon=True, kwargs={
+            "manual": True,
+            "force": bool(vals) and str(vals[0]) == "force"}).start()
+        return
+    elif member == "Stop":
+        SPEAKER.cancel("summary")
+        SPEAKER.cancel(None)
+        SPEAKER.interrupt()
+        return
     elif member == "TestVoice":
         if vals and vals[0]:
             key = str(vals[0])
@@ -1421,7 +1469,7 @@ def contact_rows():
 
     Le carnet est réservé aux processus du groupe « privileged ». On essaie
     d'abord de le lire directement, puis on demande au petit assistant
-    notivox-contacts, installé avec ce droit, d'en faire une copie privée
+    notivox-helper, installé avec ce droit, d'en faire une copie privée
     dans ~/.cache/notivox."""
     now = time.time()
     if _contacts["rows"] is not None and now - _contacts["time"] < 60:
@@ -1430,10 +1478,10 @@ def contact_rows():
     for attempt in ("direct", "assistant"):
         path = CONTACTS_DB
         if attempt == "assistant":
-            if not os.path.exists(CONTACTS_HELPER):
+            if not os.path.exists(HELPER):
                 break
             try:
-                subprocess.run([CONTACTS_HELPER], timeout=5,
+                subprocess.run([HELPER, "contacts"], timeout=5,
                                stdout=subprocess.DEVNULL,
                                stderr=subprocess.DEVNULL)
             except Exception:
@@ -1573,6 +1621,7 @@ def on_ofono_message(head, vals):
             threading.Thread(target=prepare_call, args=(cpath,),
                              daemon=True).start()
     elif member == "CallRemoved" and vals:
+        LAST_CALL_END[0] = time.time()
         with CALLS_LOCK:
             CALLS.pop(vals[0], None)
         SPEAKER.cancel(vals[0])
@@ -1591,6 +1640,287 @@ def on_ofono_message(head, vals):
                 if path in CALLS:
                     CALLS[path]["number"] = str(vals[1])
                     CALLS[path]["text"] = None
+
+
+
+# ---------------------------------------------------------------------------
+# Résumé vocal de la Vue Événements
+# ---------------------------------------------------------------------------
+
+SUMMARY_TYPES = ("messages", "calls", "email", "calendar", "system", "other")
+LAST_CALL_END = [0.0]
+_last_auto = {"ids": None, "time": 0.0}
+
+
+def notification_type(app, category):
+    """Famille d'une notification, d'après sa catégorie (et à défaut le nom
+    de l'application qui l'a publiée)."""
+    c = (category or "").lower()
+    a = (app or "").lower()
+    if c.startswith("x-nemo.call") or "call.missed" in c:
+        return "calls"
+    if c.startswith(("x-nemo.messaging", "im.")) or c in ("im", "msg"):
+        return "messages"
+    if c.startswith(("x-nemo.email", "email")):
+        return "email"
+    if c.startswith(("x-nemo.calendar", "x-nemo.alarm", "x-nemo.reminder",
+                     "x-nemo.organizer")) or c in ("event", "reminder",
+                                                  "alarm"):
+        return "calendar"
+    if c.startswith(("x-nemo.system", "x-nemo.battery", "x-nemo.transfer",
+                     "x-nemo.software-update", "x-nemo.connectivity",
+                     "x-nemo.general", "x-nemo.ssu", "x-nemo.usb",
+                     "x-nemo.storage", "device", "network", "transfer",
+                     "presence")):
+        return "system"
+    if a in ("messages", "commhistoryd"):
+        return "messages"
+    if a in ("téléphone", "phone", "voicecall-ui"):
+        return "calls"
+    return "other"
+
+
+def events_db_path():
+    """Copie fraîche de la base des notifications, ou None."""
+    if EVENTS_DB:
+        return EVENTS_DB
+    if not os.path.exists(HELPER):
+        return None
+    try:
+        subprocess.run([HELPER, "notifications"], timeout=5,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as exc:
+        dbg("copie des notifications impossible :", exc)
+        return None
+    path = os.path.join(CACHE_DIR, "notifications.db")
+    return path if os.path.exists(path) else None
+
+
+def read_events():
+    """Notifications présentes dans la Vue Événements, de la plus ancienne
+    à la plus récente : liste de dict (id, app, summary, body, category,
+    removable, type).
+
+    Sailfish (lipstick) garde ces notifications dans une base SQLite. Il
+    l'écrit avec quelques secondes de retard : une notification arrivée
+    juste avant le résumé peut manquer."""
+    path = events_db_path()
+    if not path:
+        raise RuntimeError("base des notifications introuvable")
+    import sqlite3
+    db = sqlite3.connect("file:%s" % path, uri=True, timeout=2)
+    try:
+        cols = _columns(db, "notifications")
+        if "id" not in cols or "summary" not in cols:
+            raise RuntimeError("table des notifications inattendue : %s"
+                               % cols)
+        hints = {}
+        if "hint" in _columns(db, "hints"):
+            for nid, hint, value in db.execute(
+                    "SELECT id, hint, value FROM hints"):
+                hints.setdefault(nid, {})[str(hint)] = value
+        names = [c for c in ("app_name", "explicit_app_name",
+                             "disambiguated_app_name") if c in cols]
+        rows = db.execute("SELECT id, summary, body, %s FROM notifications "
+                          "ORDER BY id" % ", ".join(names or ["''"]))
+        out = []
+        for row in rows:
+            nid, summary, body = row[0], row[1] or "", row[2] or ""
+            named = dict(zip(names, row[3:]))
+            h = hints.get(nid, {})
+            if str(h.get("transient", "")).lower() in ("true", "1"):
+                continue
+            app = (named.get("explicit_app_name") or
+                   named.get("disambiguated_app_name") or
+                   named.get("app_name") or "").strip()
+            summary = clean(str(summary or h.get("x-nemo-preview-summary")
+                                or ""))
+            body = clean(str(body or h.get("x-nemo-preview-body") or ""))
+            if not summary and not body:
+                continue
+            category = str(h.get("category") or "")
+            removable = str(h.get("x-nemo-user-removable", "true")).lower() \
+                not in ("false", "0")
+            out.append({"id": int(nid), "app": app or "?",
+                        "summary": summary, "body": body,
+                        "category": category, "removable": removable,
+                        "type": notification_type(app, category)})
+        return out
+    finally:
+        db.close()
+
+
+def plural(lang, kind, n):
+    return phrase("sum_%s_%s" % (kind, "1" if n == 1 else "n"),
+                  lang).format(n)
+
+
+def build_summary(events, lang):
+    """Prépare le résumé : liste de (texte, langue, ids effaçables après
+    lecture). Décompte par application, puis lecture complète."""
+    sc = CFG.get("summary", {})
+    types = sc.get("types", {})
+    kept = [e for e in events if types.get(e["type"], True)]
+    if not kept:
+        return []
+    groups = {}
+    for e in kept:
+        groups.setdefault(e["app"], []).append(e)
+    # Les applications les plus récemment actives d'abord, comme dans la
+    # Vue Événements ; dans chaque application, ordre chronologique.
+    order = sorted(groups, key=lambda a: -max(e["id"] for e in groups[a]))
+    parts = []
+    n = len(kept)
+    head = [phrase("sum_total_1" if n == 1 else "sum_total_n",
+                   lang).format(n)]
+    for app in order:
+        g = groups[app]
+        kinds = {}
+        for e in g:
+            k = e["type"] if e["type"] in ("messages", "calls", "email") \
+                else "other"
+            kinds[k] = kinds.get(k, 0) + 1
+        counts = ", ".join(plural(lang, k, c) for k, c in kinds.items())
+        head.append("%s, %s." % (app, counts))
+    parts.append((" ".join(head), lang, []))
+    if not sc.get("detail", True):
+        return parts
+    parts.append((phrase("sum_detail", lang), lang, []))
+    limit = max(1, int(sc.get("max_items", 30) or 30))
+    maxc = int(CFG.get("max_chars", 300) or 300)
+    told = 0
+    for app in order:
+        content = app_setting(app).get("content", "full") \
+            if app in CFG.get("apps", {}) else "full"
+        if content == "app":
+            continue
+        parts.append((app + ".", lang, []))
+        last_sender = None
+        for e in groups[app]:
+            if told >= limit:
+                break
+            sender, body = e["summary"], e["body"]
+            if content == "title":
+                body = ""
+            if sender and sender == last_sender and body:
+                text = body
+            else:
+                text = ". ".join(x for x in (sender, body) if x)
+            last_sender = sender
+            if len(text) > maxc:
+                text = text[:maxc].rsplit(" ", 1)[0] + "…"
+            item_lang = lang
+            if CFG.get("detect_language", True):
+                item_lang = detect_language(e["summary"] + " " + e["body"],
+                                            candidate_langs(), lang)
+            parts.append((text, item_lang,
+                          [e["id"]] if e["removable"] else []))
+            told += 1
+    if told < n and told >= limit:
+        parts.append((phrase("sum_more", lang).format(n - told), lang, []))
+    parts.append((phrase("sum_end", lang), lang, []))
+    return parts
+
+
+def close_notifications(ids):
+    """Efface des notifications de la Vue Événements. Sailfish permet à
+    toute application d'effacer une notification marquée comme effaçable
+    par l'utilisateur, ce qui est le cas par défaut."""
+    for nid in ids:
+        r = dbus_send("session", "org.freedesktop.Notifications",
+                      "/org/freedesktop/Notifications",
+                      "org.freedesktop.Notifications.CloseNotification",
+                      "uint32:%d" % int(nid))
+        dbg("notification %d effacée" % nid if r is not None
+            else "notification %d : effacement sans réponse" % nid)
+
+
+def speak_summary(manual=False, force=False):
+    """Lit le résumé de la Vue Événements. manual : demandé explicitement
+    (commande, bouton) ; il est alors lu même sans nouveauté. force : lu
+    même sans écouteurs, en pause ou en plage de silence."""
+    lang = CFG.get("language", "fr")
+    try:
+        events = read_events()
+    except Exception as exc:
+        log("résumé impossible :", exc)
+        if manual:
+            SPEAKER.say(phrase("sum_none", lang), lang=lang, prio=3,
+                        tag="summary", force=force)
+        return
+    parts = build_summary(events, lang)
+    ids = sorted(i for _t, _l, x in parts for i in x)
+    if not manual:
+        if not parts:
+            dbg("résumé automatique : rien à lire")
+            return
+        # Même liste lue il y a moins de 30 minutes : on ne la répète pas.
+        if _last_auto["ids"] == ids and time.time() - _last_auto["time"] \
+                < 1800:
+            dbg("résumé automatique : rien de nouveau depuis le dernier")
+            return
+        _last_auto["ids"], _last_auto["time"] = ids, time.time()
+    if not parts:
+        parts = [(phrase("sum_none", lang), lang, [])]
+    clear = CFG.get("summary", {}).get("clear_after", False)
+    log("résumé : %d notifications, %d annonces" % (len(events), len(parts)))
+    for text, plang, pids in parts:
+        done = None
+        if clear and pids:
+            done = (lambda x=tuple(pids): close_notifications(x))
+        # Priorité 3 : après un appel, avant les nouvelles notifications.
+        SPEAKER.say(text, lang=plang, prio=3, tag="summary", force=force,
+                    done=done)
+
+
+def headset_watch():
+    """Lance le résumé quand des écouteurs deviennent la sortie son.
+
+    On suit les événements du serveur son (pactl subscribe) plutôt que de
+    l'interroger en boucle. Les changements dus à un appel (le casque
+    Bluetooth est éteint pendant la sonnerie puis rallumé) sont ignorés."""
+    state = {"out": audio_output(), "pending": 0.0}
+
+    def check():
+        forget_route()
+        new = audio_output()
+        old, state["out"] = state["out"], new
+        if new not in ("bluetooth", "wired") or old in ("bluetooth",
+                                                         "wired"):
+            return
+        if CALLS or time.time() - LAST_CALL_END[0] < 60:
+            dbg("écouteurs : changement lié à un appel, pas de résumé")
+            return
+        if not CFG.get("summary", {}).get("on_headset", False):
+            return
+        if blocked_reason():
+            dbg("résumé à la connexion non lu :", blocked_reason())
+            return
+        dbg("écouteurs connectés (%s) : résumé" % new)
+        speak_summary(manual=False)
+
+    env = dict(os.environ, LC_ALL="C", LANG="C")
+    while True:
+        if not shutil.which("pactl"):
+            time.sleep(5)
+            check()
+            continue
+        try:
+            proc = subprocess.Popen(["pactl", "subscribe"], env=env,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.DEVNULL, text=True)
+        except OSError:
+            time.sleep(30)
+            continue
+        for line in proc.stdout:
+            if re.search(r"'(new|change|remove)' on (sink|card) ", line):
+                # On laisse le casque s'installer avant de regarder.
+                if not state["pending"]:
+                    state["pending"] = time.time()
+                    threading.Timer(3.0, lambda: (state.update(pending=0.0),
+                                                  check())).start()
+        proc.wait()
+        time.sleep(5)
 
 
 # ---------------------------------------------------------------------------
@@ -1658,6 +1988,34 @@ def main():
             except Exception as exc:
                 print("structure illisible :", exc)
         return
+    if len(sys.argv) >= 2 and sys.argv[1] == "--events":
+        CFG = read_json(CONFIG_FILE, DEFAULT_CONFIG)
+        try:
+            events = read_events()
+        except Exception as exc:
+            print("lecture impossible :", exc)
+            try:
+                import sqlite3
+                db = sqlite3.connect(os.path.join(CACHE_DIR,
+                                                  "notifications.db"))
+                for t in ("notifications", "hints"):
+                    print("  %s : %s" % (t, ", ".join(_columns(db, t))))
+            except Exception:
+                pass
+            return
+        print("%d notifications dans la Vue Événements :" % len(events))
+        for e in events:
+            print("  [%d] %s | %s | %s : %s%s" % (
+                e["id"], e["type"], e["app"], e["category"] or "-",
+                (e["summary"] + " / " + e["body"])[:70],
+                "" if e["removable"] else " (non effaçable)"))
+        print("\nRésumé qui serait lu :")
+        for text, lang, ids in build_summary(events, CFG.get("language",
+                                                             "fr")):
+            print("  [%s]%s %s" % (lang, " (efface %s)" % ids if ids and
+                                   CFG.get("summary", {}).get("clear_after")
+                                   else "", text))
+        return
     if len(sys.argv) >= 3 and sys.argv[1] == "--play":
         device = None
         props = []
@@ -1717,6 +2075,8 @@ def main():
         ["type='signal',interface='org.ofono.VoiceCallManager'",
          "type='signal',interface='org.ofono.VoiceCall'"],
         on_ofono_message, "appels")).start()
+
+    threading.Thread(target=headset_watch, daemon=True).start()
 
     last_status = last_seen = last_clean = 0
     while True:

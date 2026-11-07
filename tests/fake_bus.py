@@ -13,6 +13,10 @@ class Notif(ServiceInterface):
         super().__init__("org.freedesktop.Notifications")
 
     @method()
+    def CloseNotification(self, nid: 'u'):
+        print("fermeture", nid, flush=True)
+
+    @method()
     def Notify(self, app: 's', rid: 'u', icon: 's', summary: 's', body: 's',
                actions: 'as', hints: 'a{sv}', timeout: 'i') -> 'u':
         return 1
@@ -72,6 +76,9 @@ async def main():
         await asyncio.sleep(2.5)
         await sig(bus, "/ril_0", "org.ofono.VoiceCallManager", "CallRemoved",
                   "o", ["/ril_0/voicecall02"])
+    elif steps == "summary":
+        await sig(bus, "/org/notivox", "org.notivox.Control", "Summary", "",
+                  [])
     elif steps == "control":
         await sig(bus, "/org/notivox", "org.notivox.Control", "Pause", "i",
                   [30])

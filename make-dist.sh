@@ -4,7 +4,7 @@
 #   sudo apt install rpm gcc-aarch64-linux-gnu curl qttools5-dev-tools
 set -e
 cd "$(dirname "$0")"
-V=1.1.1
+V=1.2.0
 PIPER_URL=https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_aarch64.tar.gz
 DEB=https://deb.debian.org/debian/pool/main/g/gcc-10
 TOP=$(pwd)
@@ -27,11 +27,12 @@ if [ ! -f vendor/piper-aarch64.tar.gz ]; then
     rm -rf "$W"
 fi
 
-# 2. Assistant de lecture du carnet d'adresses, lié statiquement.
+# 2. Assistant de lecture des bases protégées (carnet, notifications),
+#    lié statiquement.
 mkdir -p build
 aarch64-linux-gnu-gcc -O2 -static -Wall -Wno-format-truncation \
-    -o build/notivox-contacts sailfish/notivox-contacts.c
-aarch64-linux-gnu-strip build/notivox-contacts
+    -o build/notivox-helper sailfish/notivox-helper.c
+aarch64-linux-gnu-strip build/notivox-helper
 
 # 3. Traductions du titre de la page des Paramètres.
 LRELEASE=$(command -v lrelease-qt5 || ls /usr/lib/*/qt5/bin/lrelease 2>/dev/null | head -1 || command -v lrelease)

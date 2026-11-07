@@ -32,14 +32,15 @@ db.execute("insert into Contacts values (1, 'Jean Dupont')")
 db.execute("insert into PhoneNumbers values (1, 1, '06 12 34 56 78')")
 db.commit()
 P
+    python3 "$HERE/make_events_db.py" "$W/events.db"
     export DBUS_SESSION_BUS_ADDRESS=$(dbus-daemon --session --fork --print-address)
     HOME="$W/home" PLOG="$W/plog" NOTIVOX_PLAYER="$W/player.sh" \
     NOTIVOX_FORCE_OUTPUT="${OUTPUT:-bluetooth}" NOTIVOX_OFONO_BUS=session \
     NOTIVOX_PIPER_DIR="$PIPER_DIR" NOTIVOX_CONF_DIR="$W/conf" \
     NOTIVOX_DATA_DIR="$W/data" NOTIVOX_CACHE_DIR="$W/cache" \
-    NOTIVOX_CONTACTS_HELPER=/nonexistent \
+    NOTIVOX_HELPER=/nonexistent NOTIVOX_EVENTS_DB="$W/events.db" \
         python3 "$DAEMON" > "$W/log" 2>&1 & local pid=$!
-    python3 "$HERE/fake_bus.py" "$1" "$3"
+    python3 "$HERE/fake_bus.py" "$1" "$3" > "$W/bus.log"
     kill $pid; wait $pid 2>/dev/null
     LOG="$W/log"; cp "$W/log" /tmp/last-$1-${OUTPUT:-bt}.log; PLAYS=$(ls "$W/plog" | wc -l); WORK=$W
 }
@@ -161,5 +162,19 @@ echo "== commandes (Situations)"
 run control '{"new_apps_default": true, "debug": true}' 8
 check "pause respectée" "notification non lue (en pause)"
 check "texte libre lu" "défaut : Texte libre envoyé par Situations"
+
+echo "== résumé de la Vue Événements"
+run summary '{"debug": true, "summary": {"clear_after": true}}' 25
+check "décompte par application" "6 notifications. Signal, une notification. Courriel, un courriel."
+check "message anglais lu par une autre voix" "lecture [en/espeak]"
+check "notifications système exclues par défaut" "Batterie faible" 0
+check "fin du résumé" "Fin du résumé."
+n=$(grep -c '^fermeture' "$WORK/bus.log")
+if [ "$n" -eq 5 ]; then echo "ok    cinq notifications effacées après lecture (appel non effaçable gardé)"
+else echo "ÉCHEC effacement : $n fermetures"; cat "$WORK/bus.log"; FAIL=1; fi
+
+echo "== résumé sans écouteurs"
+OUTPUT=speaker run summary '{"debug": true}' 6
+plays "rien n'est lu sans écouteurs" 0
 
 exit $FAIL

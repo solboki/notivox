@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.0 (2026-11-07, not published)
+
+- New spoken summary of the Events view. It announces how many notifications each app has, then reads them in full, each in its own language. It reads every notification still shown, not only new ones.
+- It can be started from the new "Spoken summary" settings page, with `notivox-ctl summary` (for Situations), or automatically when headphones connect (optional, off by default). The same summary is not repeated within half an hour, and headset changes caused by a call are ignored.
+- Option to clear from the Events view each notification read in full.
+- Choice of notification families included: messages, missed calls, emails, calendar and reminders, system, other apps.
+- `notivox-ctl stop` interrupts the reading; `notivox-ctl events` shows what the summary would read.
+- The privileged helper is renamed `notivox-helper` and also copies the notification store.
+- Better language detection between neighbouring languages (French text no longer read in Spanish).
+
 ## 1.1.1 (2026-11-06)
 
 - The Settings entry sits right after "Sounds and feedback". Its position is computed at installation from that entry's own order number.
