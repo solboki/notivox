@@ -1,5 +1,5 @@
 Name:       notivox
-Version:    1.6.1
+Version:    1.7.0
 Release:    1
 Summary:    Reads notifications and incoming calls aloud in your headphones
 License:    GPL-3.0-or-later
@@ -105,6 +105,9 @@ systemctl-user daemon-reload >/dev/null 2>&1 || :
 %{_datadir}/translations/settings-notivox*.qm
 
 %changelog
+* Sat Nov 07 2026 Boris Solodki <solboki@solodki.fr> - 1.7.0-1
+- Music and podcasts are paused while Notivox speaks and resume after.
+- Headset button: Notivox stops and the paused playback resumes.
 * Sat Nov 07 2026 Boris Solodki <solboki@solodki.fr> - 1.6.1-1
 - Headset button: works even though Sailfish gives the button to another
   player; that player is paused again after the press.

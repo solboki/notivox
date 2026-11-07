@@ -32,7 +32,7 @@ import time
 import wave
 from array import array
 
-VERSION = "1.6.1"
+VERSION = "1.7.0"
 
 HOME = os.path.expanduser("~")
 CONF_DIR = os.environ.get("NOTIVOX_CONF_DIR",
@@ -142,6 +142,9 @@ DEFAULT_CONFIG = {
     },
     # Bouton lecture/pause du casque : interrompre la lecture en cours
     "headset_button": True,
+    # Mettre en pause la musique (ou les podcasts) pendant que Notivox
+    # parle, et la relancer ensuite
+    "pause_players": True,
     "debug": False,
 }
 
@@ -728,6 +731,8 @@ class MprisButton(threading.Thread):
         self.owned = False
         self.want = False
         self.states = {}
+        self.paused = []
+        self.muted = []
         self.ignore_until = 0.0
         self.lock = threading.Lock()
 
@@ -741,6 +746,7 @@ class MprisButton(threading.Thread):
                 dbg("bouton du casque indisponible :", exc)
             self.bus = None
             time.sleep(10)
+
 
     @property
     def unique(self):
@@ -761,34 +767,36 @@ class MprisButton(threading.Thread):
                     dbg("MPRIS : %s" % exc)
 
     def set_active(self, on):
-        """Prend ou rend le nom de lecteur multimédia."""
+        """Début (on) ou fin d'une lecture de Notivox.
+
+        Au début, les lecteurs qui jouaient sont mis en pause ; à la fin,
+        ils reprennent. Notivox se déclare aussi lecteur multimédia, ce qui
+        l'affiche dans les commandes de l'écran de verrouillage."""
         with self.lock:
             self.want = on
-            bus = self.bus
-            if bus is None or on == self.owned:
+            if on == self.owned:
                 return
-            try:
-                if on:
+            self.owned = on
+            bus = self.bus
+            if bus is not None:
+                try:
                     bus.call("org.freedesktop.DBus", "/org/freedesktop/DBus",
-                             "org.freedesktop.DBus", "RequestName", "su",
-                             [MPRIS_NAME, 4], wait=True)
-                else:
-                    bus.call("org.freedesktop.DBus", "/org/freedesktop/DBus",
-                             "org.freedesktop.DBus", "ReleaseName", "s",
-                             [MPRIS_NAME], wait=True)
-                self.owned = on
-                dbg("bouton du casque %s" % ("pris" if on else "rendu"))
-                if on:
-                    threading.Thread(target=self.snapshot,
-                                     daemon=True).start()
-            except Exception as exc:
-                dbg("MPRIS : %s" % exc)
+                             "org.freedesktop.DBus",
+                             "RequestName" if on else "ReleaseName",
+                             "su" if on else "s",
+                             [MPRIS_NAME, 4] if on else [MPRIS_NAME],
+                             wait=True)
+                except Exception as exc:
+                    dbg("MPRIS : %s" % exc)
+            dbg("lecture de Notivox %s" % ("commencée" if on else "finie"))
+        if on:
+            self.begin()
+        else:
+            self.resume_others()
 
-    def snapshot(self):
-        """Note l'état (lecture, pause…) des autres lecteurs au moment où
-        Notivox se met à parler, pour savoir ensuite si un appui sur le
-        bouton les a relancés."""
-        states = {}
+    def player_states(self):
+        """{nom du lecteur: (nom unique sur le bus, état)}."""
+        out = {}
         names = dbus_send("session", "org.freedesktop.DBus", "/",
                           "org.freedesktop.DBus.ListNames") or [[]]
         for name in names[0] if names and isinstance(names[0], list) else []:
@@ -798,15 +806,47 @@ class MprisButton(threading.Thread):
             owner = dbus_send("session", "org.freedesktop.DBus", "/",
                               "org.freedesktop.DBus.GetNameOwner",
                               "string:" + name)
-            st = dbus_send("session", name, MPRIS_PATH,
-                           "org.freedesktop.DBus.Properties.Get",
-                           "string:org.mpris.MediaPlayer2.Player",
-                           "string:PlaybackStatus")
-            if owner and st:
-                states[owner[0]] = st[0]
-                states[name] = st[0]
-        self.states = states
-        dbg("lecteurs au début de la lecture :", states)
+            st = player_status(name)
+            if owner:
+                out[name] = (owner[0], st)
+        return out
+
+    def begin(self):
+        """Met en pause les lecteurs qui jouent, avant que Notivox parle.
+        Les flux audio qui ne sont pas des lecteurs pilotables (certaines
+        applications Android) sont rendus muets à la place."""
+        if not CFG.get("pause_players", True):
+            self.states = {}
+            return
+        players = self.player_states()
+        self.states = {}
+        for name, (unique, st) in players.items():
+            self.states[name] = self.states[unique] = st
+        playing = [n for n, (_u, st) in players.items() if st == "Playing"]
+        self.paused = playing
+        for name in playing:
+            self.ignore_until = time.time() + 1.5
+            dbus_send("session", name, MPRIS_PATH,
+                      "org.mpris.MediaPlayer2.Player.Pause")
+            log("lecteur mis en pause pendant la lecture :", name)
+        if playing:
+            time.sleep(0.3)
+        self.muted = mute_media_streams()
+        dbg("lecteurs au début de la lecture :", players)
+
+    def resume_others(self, skip=()):
+        """Relance les lecteurs que Notivox avait mis en pause, et rend le
+        son aux flux rendus muets."""
+        paused, self.paused = self.paused, []
+        muted, self.muted = self.muted, []
+        unmute_streams(muted)
+        for name in paused:
+            if name in skip or player_status(name) == "Playing":
+                continue
+            self.ignore_until = time.time() + 1.5
+            dbus_send("session", name, MPRIS_PATH,
+                      "org.mpris.MediaPlayer2.Player.Play")
+            log("lecture reprise :", name)
 
     def props(self, iface):
         if iface == "org.mpris.MediaPlayer2":
@@ -1596,11 +1636,11 @@ class Speaker(threading.Thread):
         os.makedirs(CACHE_DIR, exist_ok=True)
         while True:
             try:
-                item = self.q.get(timeout=1.5)
+                item = self.q.get(timeout=1.0)
             except queue.Empty:
-                # Plus rien à dire : on rend le bouton du casque au lecteur
-                # de musique.
-                if BUTTON:
+                # Plus rien à dire (et pas de résumé en préparation) : la
+                # musique mise en pause reprend.
+                if BUTTON and not SUMMARY_BUSY[0]:
                     BUTTON.set_active(False)
                 continue
             prio, _seq, text, lang, props_key, tag, force, voice, done = item
@@ -1867,18 +1907,66 @@ def remember_app(app, sample, hints):
     SEEN_DIRTY[0] = True
 
 
+def player_status(name):
+    st = dbus_send("session", name, MPRIS_PATH,
+                   "org.freedesktop.DBus.Properties.Get",
+                   "string:org.mpris.MediaPlayer2.Player",
+                   "string:PlaybackStatus")
+    return str(st[0]) if st else ""
+
+
+def mute_media_streams():
+    """Rend muets les flux audio de musique qui jouent encore (ceux qu'on
+    n'a pas pu mettre en pause). Renvoie leurs numéros."""
+    if not shutil.which("pactl"):
+        return []
+    env = dict(os.environ, LC_ALL="C", LANG="C")
+    try:
+        out = subprocess.run(["pactl", "list", "sink-inputs"],
+                             capture_output=True, text=True, timeout=4,
+                             env=env).stdout
+    except Exception:
+        return []
+    muted = []
+    for block in re.split(r"\n(?=Sink Input #)", out):
+        m = re.match(r"Sink Input #(\d+)", block.strip())
+        if not m:
+            continue
+        role = re.search(r'media\.role = "([^"]*)"', block)
+        role = role.group(1) if role else ""
+        if 'media.title = "Notivox"' in block or \
+                re.search(r"^\s*Corked: yes", block, re.M) or \
+                re.search(r"^\s*Mute: yes", block, re.M) or \
+                role in ("phone", "ringtone", "alarm", "notification",
+                         "event", "voiceui", "feedback", "systemsound"):
+            continue
+        if subprocess.run(["pactl", "set-sink-input-mute", m.group(1), "1"],
+                          timeout=4, env=env).returncode == 0:
+            muted.append(m.group(1))
+    if muted:
+        log("flux audio rendus muets pendant la lecture :", muted)
+    return muted
+
+
+def unmute_streams(ids):
+    for i in ids:
+        subprocess.run(["pactl", "set-sink-input-mute", i, "0"], timeout=4,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def on_player_command(head):
     """Un ordre (lecture, pause…) est envoyé à un lecteur multimédia.
 
-    Sailfish donne le bouton du casque à un lecteur choisi par lui (souvent
-    le premier lancé), et non à Notivox. Si un tel ordre passe pendant que
-    Notivox parle, c'est que l'on a appuyé sur le bouton : on interrompt
-    la lecture, et l'on remet en pause le lecteur que l'appui a relancé."""
+    Sailfish envoie le bouton du casque à un lecteur qu'il choisit, et non
+    à Notivox. Un ordre qui passe pendant que Notivox parle signifie donc
+    que l'on a appuyé sur le bouton : Notivox se tait, et la lecture qui
+    avait été mise en pause reprend. Si l'appui a relancé un autre lecteur
+    (qui ne jouait pas avant), celui-ci est remis en pause."""
     if not BUTTON or not BUTTON.owned or \
             not CFG.get("headset_button", True):
         return
     if time.time() < BUTTON.ignore_until:
-        return      # notre propre remise en pause
+        return      # nos propres ordres de pause et de reprise
     dest, member = head.get("destination", ""), head.get("member", "")
     if member not in ("Play", "PlayPause", "Pause", "Stop", "Next",
                       "Previous") or dest in (MPRIS_NAME, BUTTON.unique):
@@ -1887,15 +1975,21 @@ def on_player_command(head):
     log("bouton du casque (ordre %s à %s, alors %s) : lecture interrompue"
         % (member, dest, before or "état inconnu"))
     stop_reading()
-    if member == "Play" or (member == "PlayPause" and before != "Playing"):
-        BUTTON.ignore_until = time.time() + 2
 
-        def pause_again():
-            time.sleep(0.15)
-            dbus_send("session", dest, MPRIS_PATH,
+    def settle():
+        time.sleep(0.3)
+        BUTTON.ignore_until = time.time() + 1.5
+        names = {u: n for n, (u, _s) in BUTTON.player_states().items()}
+        name = names.get(dest, dest)
+        was_paused_by_us = name in BUTTON.paused
+        if not was_paused_by_us and before != "Playing" and \
+                player_status(name) == "Playing":
+            dbus_send("session", name, MPRIS_PATH,
                       "org.mpris.MediaPlayer2.Player.Pause")
-            dbg("lecteur %s remis en pause" % dest)
-        threading.Thread(target=pause_again, daemon=True).start()
+            dbg("lecteur %s remis en pause" % name)
+        BUTTON.resume_others()
+        BUTTON.set_active(False)
+    threading.Thread(target=settle, daemon=True).start()
 
 
 def on_session_message(head, vals):
@@ -2285,6 +2379,7 @@ def on_ofono_message(head, vals):
 
 SUMMARY_TYPES = ("messages", "calls", "email", "calendar", "system", "other")
 LAST_CALL_END = [0.0]
+SUMMARY_BUSY = [False]
 _last_auto = {"ids": None, "time": 0.0}
 
 
@@ -2886,6 +2981,14 @@ def speak_summary(manual=False, force=False):
     log("résumé : %d notifications, %d éléments" % (len(events),
                                                      len(parts)))
     SPEAKER.cancel("summary")
+    SUMMARY_BUSY[0] = True
+    try:
+        _queue_summary(parts, d, clear, beep, force)
+    finally:
+        SUMMARY_BUSY[0] = False
+
+
+def _queue_summary(parts, d, clear, beep, force):
     for n, p in enumerate(parts):
         if p[0] in ("pause", "sep"):
             kind = "beep" if p[0] == "sep" and beep else "pause"
@@ -2967,7 +3070,9 @@ BUTTON = None
 
 def stop_reading():
     """Interrompt la lecture en cours et oublie ce qui attendait (dont la
-    suite du résumé)."""
+    suite du résumé). La musique mise en pause reprend ensuite, quand le
+    lecteur de Notivox constate qu'il n'a plus rien à dire."""
+    SUMMARY_BUSY[0] = False
     SPEAKER.cancel("summary")
     SPEAKER.cancel(None)
     SPEAKER.interrupt()

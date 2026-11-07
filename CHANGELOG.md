@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.0 (2026-11-07, not published)
+
+- Music and podcasts no longer play under the voice. When Notivox starts speaking (a notification or the summary), the players that are playing are paused; they resume when it falls silent. Audio streams that cannot be paused (some Android apps) are muted instead. During a summary, playback is paused once and resumed once, at the end. Can be turned off in the advanced options.
+- Headset button: a press while Notivox speaks stops it, and the playback it had paused resumes. If the press restarted a player that was not playing before, that player is paused again.
+
 ## 1.6.1 (2026-11-07, not published)
 
 - Headset button, second approach. Sailfish does not hand the button to Notivox: it sends the command to another player, usually the first one started (a podcast app in the test). While it speaks, Notivox now watches the commands sent to media players; when one passes, it stops reading and, if the press restarted that player, pauses it again within a fraction of a second.

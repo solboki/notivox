@@ -24,10 +24,10 @@ class Notif(ServiceInterface):
 
 
 class Podcast(ServiceInterface):
-    """Lecteur de podcasts fictif, en pause, comme Sailcast."""
-    def __init__(self):
+    """Lecteur de podcasts fictif, comme Sailcast."""
+    def __init__(self, status="Paused"):
         super().__init__("org.mpris.MediaPlayer2.Player")
-        self.status = "Paused"
+        self.status = status
 
     @method()
     def Play(self):
@@ -141,6 +141,19 @@ async def main():
                                interface="org.mpris.MediaPlayer2.Player",
                                member="Play"))
         await asyncio.sleep(3)
+    elif steps in ("music", "music-button"):
+        pod = await MessageBus().connect()
+        pod.export("/org/mpris/MediaPlayer2", Podcast("Playing"))
+        await pod.request_name("org.mpris.MediaPlayer2.podcast")
+        await sig(bus, "/org/notivox", "org.notivox.Control", "Summary", "",
+                  [])
+        if steps == "music-button":
+            await asyncio.sleep(6)
+            await bus.call(Message(destination=pod.unique_name,
+                                   path="/org/mpris/MediaPlayer2",
+                                   interface="org.mpris.MediaPlayer2.Player",
+                                   member="PlayPause"))
+        await asyncio.sleep(float(sys.argv[2]) - 2)
     elif steps == "summary-speaker":
         await sig(bus, "/org/notivox", "org.notivox.Control", "Summary", "s",
                   ["speaker"])

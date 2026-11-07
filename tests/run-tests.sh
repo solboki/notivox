@@ -210,6 +210,17 @@ check "état du lecteur noté au début" "alors Paused"
 check "la suite du résumé est abandonnée" "Fin de vos notifications" 0
 grep -q '^podcast Pause' "$WORK/bus.log" && echo "ok    lecteur de podcasts remis en pause" || { echo "ÉCHEC podcast non remis en pause"; cat "$WORK/bus.log"; FAIL=1; }
 
+echo "== musique en cours : pause pendant la lecture, reprise ensuite"
+PLAYDELAY=0.2 run music '{"debug": true, "apps": {"WhatsApp": {"summary": "full"}}}' 22
+if [ "$(grep '^podcast' "$WORK/bus.log" | tr '\n' ' ')" = "podcast Pause podcast Play " ]; then
+    echo "ok    podcast mis en pause puis relancé"
+else echo "ÉCHEC pause et reprise : $(grep '^podcast' "$WORK/bus.log" | tr '\n' ' ')"; FAIL=1; fi
+PLAYDELAY=0.8 run music-button '{"debug": true, "apps": {"WhatsApp": {"summary": "full"}, "Signal": {"summary": "full"}}}' 14
+if [ "$(grep '^podcast' "$WORK/bus.log" | tr '\n' ' ')" = "podcast Pause podcast PlayPause " ]; then
+    echo "ok    appui : Notivox se tait et le podcast reprend, sans coupure supplémentaire"
+else echo "ÉCHEC appui avec musique : $(grep '^podcast' "$WORK/bus.log" | tr '\n' ' ')"; FAIL=1; fi
+check "lecture interrompue par l'appui" "bouton du casque (ordre PlayPause"
+
 echo "== résumé sans écouteurs"
 OUTPUT=speaker run summary '{"debug": true}' 6
 plays "events : rien n'est lu sans écouteurs" 0

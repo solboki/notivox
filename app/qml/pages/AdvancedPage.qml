@@ -39,9 +39,17 @@ Page {
                 onClicked: NV.setCfg(["speak_if_output_unknown"], !checked)
             }
             TextSwitch {
+                text: NV.t("Mettre la musique en pause pendant la lecture", "Pause the music while reading")
+                description: NV.t("La musique ou le podcast en cours s'arrête pendant que Notivox parle, puis reprend. Une application qui ne se laisse pas mettre en pause est rendue muette à la place.",
+                                  "The music or podcast playing stops while Notivox speaks, then resumes. An app that cannot be paused is muted instead.")
+                checked: NV.get(["pause_players"], true)
+                automaticCheck: false
+                onClicked: NV.setCfg(["pause_players"], !checked)
+            }
+            TextSwitch {
                 text: NV.t("Interrompre avec le bouton du casque", "Stop with the headset button")
-                description: NV.t("Pendant une lecture, un appui court sur le bouton lecture/pause l'arrête, résumé compris ; si l'appui relance votre lecteur de musique ou de podcasts, Notivox le remet aussitôt en pause.",
-                                  "While reading, a short press on the play/pause button stops it, summary included; if the press restarts your music or podcast player, Notivox pauses it again at once.")
+                description: NV.t("Pendant une lecture, un appui court sur le bouton lecture/pause l'arrête, résumé compris, et la musique mise en pause reprend.",
+                                  "While reading, a short press on the play/pause button stops it, summary included, and the paused music resumes.")
                 checked: NV.get(["headset_button"], true)
                 automaticCheck: false
                 onClicked: NV.setCfg(["headset_button"], !checked)
