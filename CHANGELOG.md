@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.1 (2026-11-07, not published)
+
+- Fixed: after a press on the headset button, the summary went on with its next sentence and paused the music again. Interrupting now also stops the preparation of the remaining sentences.
+- Audio streams are only muted when no pausable player was playing; when a player such as Deezer has been paused, nothing else is muted.
+
 ## 1.7.0 (2026-11-07, not published)
 
 - Music and podcasts no longer play under the voice. When Notivox starts speaking (a notification or the summary), the players that are playing are paused; they resume when it falls silent. Audio streams that cannot be paused (some Android apps) are muted instead. During a summary, playback is paused once and resumed once, at the end. Can be turned off in the advanced options.

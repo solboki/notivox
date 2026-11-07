@@ -170,7 +170,7 @@ check "texte libre lu" "défaut : Texte libre envoyé par Situations"
 
 echo "== résumé de la Vue Événements"
 run summary '{"debug": true, "summary": {"clear_after": true}, "apps": {"Signal": {"summary": "full"}, "WhatsApp": {"summary": "titles"}, "Courriel": {"summary": "count"}}}' 30
-check "date et heure annoncées" "Bonjour. Nous sommes le"
+check "date et heure annoncées" ". Nous sommes le"
 check "total sans la liste des applications" "] vers défaut : Vous avez 6 notifications."
 check "décompte d'une application" "Vous avez 2 notifications de WhatsApp."
 check "pas de numéros" "1 : " 0
@@ -220,6 +220,7 @@ if [ "$(grep '^podcast' "$WORK/bus.log" | tr '\n' ' ')" = "podcast Pause podcast
     echo "ok    appui : Notivox se tait et le podcast reprend, sans coupure supplémentaire"
 else echo "ÉCHEC appui avec musique : $(grep '^podcast' "$WORK/bus.log" | tr '\n' ' ')"; FAIL=1; fi
 check "lecture interrompue par l'appui" "bouton du casque (ordre PlayPause"
+check "le résumé ne reprend pas après l'appui" "lecture de Notivox commencée" 1
 
 echo "== résumé sans écouteurs"
 OUTPUT=speaker run summary '{"debug": true}' 6

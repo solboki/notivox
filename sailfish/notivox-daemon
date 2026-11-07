@@ -32,7 +32,7 @@ import time
 import wave
 from array import array
 
-VERSION = "1.7.0"
+VERSION = "1.7.1"
 
 HOME = os.path.expanduser("~")
 CONF_DIR = os.environ.get("NOTIVOX_CONF_DIR",
@@ -829,9 +829,10 @@ class MprisButton(threading.Thread):
             dbus_send("session", name, MPRIS_PATH,
                       "org.mpris.MediaPlayer2.Player.Pause")
             log("lecteur mis en pause pendant la lecture :", name)
-        if playing:
-            time.sleep(0.3)
-        self.muted = mute_media_streams()
+        # Les flux audio ne sont rendus muets que si aucun lecteur pilotable
+        # ne jouait : sinon, la pause suffit, et l'on risquerait de couper
+        # le son d'une autre application.
+        self.muted = [] if playing else mute_media_streams()
         dbg("lecteurs au début de la lecture :", players)
 
     def resume_others(self, skip=()):
@@ -2380,6 +2381,9 @@ def on_ofono_message(head, vals):
 SUMMARY_TYPES = ("messages", "calls", "email", "calendar", "system", "other")
 LAST_CALL_END = [0.0]
 SUMMARY_BUSY = [False]
+# Numéro du résumé en cours : un appui ou « stop » le change, et la
+# préparation des phrases restantes s'arrête aussitôt.
+SUMMARY_RUN = [0]
 _last_auto = {"ids": None, "time": 0.0}
 
 
@@ -2981,15 +2985,21 @@ def speak_summary(manual=False, force=False):
     log("résumé : %d notifications, %d éléments" % (len(events),
                                                      len(parts)))
     SPEAKER.cancel("summary")
+    SUMMARY_RUN[0] += 1
+    run = SUMMARY_RUN[0]
     SUMMARY_BUSY[0] = True
     try:
-        _queue_summary(parts, d, clear, beep, force)
+        _queue_summary(parts, d, clear, beep, force, run)
     finally:
-        SUMMARY_BUSY[0] = False
+        if SUMMARY_RUN[0] == run:
+            SUMMARY_BUSY[0] = False
 
 
-def _queue_summary(parts, d, clear, beep, force):
+def _queue_summary(parts, d, clear, beep, force, run):
     for n, p in enumerate(parts):
+        if SUMMARY_RUN[0] != run:
+            dbg("résumé abandonné")
+            return
         if p[0] in ("pause", "sep"):
             kind = "beep" if p[0] == "sep" and beep else "pause"
             SPEAKER.say(("wav", sound_file(kind), "son", kind), prio=3,
@@ -3072,6 +3082,7 @@ def stop_reading():
     """Interrompt la lecture en cours et oublie ce qui attendait (dont la
     suite du résumé). La musique mise en pause reprend ensuite, quand le
     lecteur de Notivox constate qu'il n'a plus rien à dire."""
+    SUMMARY_RUN[0] += 1
     SUMMARY_BUSY[0] = False
     SPEAKER.cancel("summary")
     SPEAKER.cancel(None)
