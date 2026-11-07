@@ -79,6 +79,28 @@ async def main():
     elif steps == "summary":
         await sig(bus, "/org/notivox", "org.notivox.Control", "Summary", "",
                   [])
+    elif steps == "button":
+        await sig(bus, "/org/notivox", "org.notivox.Control", "Summary", "",
+                  [])
+        await asyncio.sleep(4)
+        # Ce que fait Sailfish : propriétés du lecteur, puis appui court
+        intro = await bus.introspect("org.mpris.MediaPlayer2.notivox",
+                                     "/org/mpris/MediaPlayer2")
+        obj = bus.get_proxy_object("org.mpris.MediaPlayer2.notivox",
+                                   "/org/mpris/MediaPlayer2", intro)
+        props = obj.get_interface("org.freedesktop.DBus.Properties")
+        allp = await props.call_get_all("org.mpris.MediaPlayer2.Player")
+        print("statut", allp["PlaybackStatus"].value,
+              allp["Metadata"].value["xesam:title"].value, flush=True)
+        player = obj.get_interface("org.mpris.MediaPlayer2.Player")
+        await player.call_play_pause()
+        print("appui envoyé", flush=True)
+        await asyncio.sleep(4)
+        reply = await bus.call(Message(
+            destination="org.freedesktop.DBus", path="/org/freedesktop/DBus",
+            interface="org.freedesktop.DBus", member="NameHasOwner",
+            signature="s", body=["org.mpris.MediaPlayer2.notivox"]))
+        print("lecteur encore présent :", reply.body[0], flush=True)
     elif steps == "summary-speaker":
         await sig(bus, "/org/notivox", "org.notivox.Control", "Summary", "s",
                   ["speaker"])

@@ -18,6 +18,8 @@ run() {  # run scénario config.json durée
     cat > "$W/player.sh" <<'P'
 #!/bin/sh
 n=$(ls "$PLOG" | wc -l); cp "$1" "$PLOG/$n.wav"
+[ -n "$PLAYDELAY" ] && sleep "$PLAYDELAY"
+exit 0
 P
     chmod +x "$W/player.sh"
     # Faux carnet d'adresses
@@ -193,6 +195,13 @@ print(m.agenda_phrase('fr', time.mktime((2026, 11, 7, 12, 0, 0, 0, 0, -1))))")
 E="Vos prochains rendez-vous aujourd'hui. Toute la journée, Anniversaire de papa. À 12 heures 30, Déjeuner avec Alice. À 16 heures, Marché. À 18 heures, Piscine. À 21 heures, Chorale."
 if [ "$R" = "$E" ]; then echo "ok    rendez-vous restants (répétitions, exceptions, agenda masqué, occurrence déplacée)"
 else echo "ÉCHEC rendez-vous : $R"; FAIL=1; fi
+
+echo "== bouton du casque"
+PLAYDELAY=0.8 run button '{"debug": true, "apps": {"WhatsApp": {"summary": "full"}, "Signal": {"summary": "full"}}}' 14
+grep -q '^statut Playing Notivox' "$WORK/bus.log" && echo "ok    Notivox se présente comme lecteur pendant la lecture" || { echo "ÉCHEC lecteur absent"; cat "$WORK/bus.log"; FAIL=1; }
+check "appui court : lecture interrompue" "bouton du casque : lecture interrompue"
+check "la suite du résumé est abandonnée" "Fin de vos notifications" 0
+grep -q 'lecteur encore présent : False' "$WORK/bus.log" && echo "ok    bouton rendu au lecteur de musique après la lecture" || { echo "ÉCHEC nom MPRIS non rendu"; cat "$WORK/bus.log"; FAIL=1; }
 
 echo "== résumé sans écouteurs"
 OUTPUT=speaker run summary '{"debug": true}' 6

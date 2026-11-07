@@ -39,6 +39,14 @@ Page {
                 onClicked: NV.setCfg(["speak_if_output_unknown"], !checked)
             }
             TextSwitch {
+                text: NV.t("Interrompre avec le bouton du casque", "Stop with the headset button")
+                description: NV.t("Pendant une lecture, un appui court sur le bouton lecture/pause l'arrête, résumé compris ; « piste suivante » passe à la notification suivante. Si de la musique joue déjà, le bouton reste au lecteur de musique.",
+                                  "While reading, a short press on the play/pause button stops it, summary included; \"next track\" skips to the next notification. If music is already playing, the button stays with the music player.")
+                checked: NV.get(["headset_button"], true)
+                automaticCheck: false
+                onClicked: NV.setCfg(["headset_button"], !checked)
+            }
+            TextSwitch {
                 text: NV.t("Se taire pendant un appel", "Stay quiet during a call")
                 checked: NV.get(["skip_during_call"], true)
                 automaticCheck: false

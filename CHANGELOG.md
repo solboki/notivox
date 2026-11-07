@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.0 (2026-11-07, not published)
+
+- A short press on the headset's play/pause button stops the reading in progress, including the rest of the summary; "next track" skips to the next notification. While it speaks, Notivox presents itself to Sailfish as a media player (MPRIS), and withdraws as soon as it falls silent, so the button goes back to the music player. If music is already playing, the button keeps controlling the music. Can be turned off in the advanced options.
+- The weather announcement names the town: "Météo à Blois, brouillard et 7 degrés."
+
 ## 1.5.0 (2026-11-07, not published)
 
 - New summary option: today's next appointments, with their start time and title, read from the Sailfish Calendar. Repeating events (daily, weekly, monthly, yearly), cancelled and moved occurrences and hidden calendars are taken into account. All-day events are announced first.
