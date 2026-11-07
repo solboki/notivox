@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.0 (2026-11-07, not published)
+
+- New summary option: today's next appointments, with their start time and title, read from the Sailfish Calendar. Repeating events (daily, weekly, monthly, yearly), cancelled and moved occurrences and hidden calendars are taken into account. All-day events are announced first.
+- The weather town is chosen from a list of suggestions shown while typing, and the chosen town stays in the field. A town chosen with the previous version is kept.
+- The privileged helper also copies the calendar database.
+
 ## 1.4.0 (2026-11-07, not published)
 
 - All settings are made per app, in the Apps page. On arrival of a notification: ignore, read the titles, or read everything, with an option to read on the loudspeaker when no headphones are connected. In the summary: ignore, give the count, read the titles, or read everything. A new app is ignored in both cases, except Messages and calls, read in full. The notification families and their settings are gone; existing settings are converted.

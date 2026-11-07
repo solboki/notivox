@@ -30,7 +30,7 @@ import time
 import wave
 from array import array
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 
 HOME = os.path.expanduser("~")
 CONF_DIR = os.environ.get("NOTIVOX_CONF_DIR",
@@ -52,6 +52,8 @@ HELPER = os.environ.get("NOTIVOX_HELPER",
 # Copie privée des notifications de la Vue Événements (fournie par HELPER) ;
 # NOTIVOX_EVENTS_DB permet de désigner une autre base pour les essais.
 EVENTS_DB = os.environ.get("NOTIVOX_EVENTS_DB", "")
+# Agenda de Sailfish (mkcal) ; NOTIVOX_CALENDAR_DB pour les essais
+CALENDAR_DB = os.environ.get("NOTIVOX_CALENDAR_DB", "")
 CONTACTS_DB = os.path.join(
     HOME, ".local/share/system/privileged/Contacts/qtcontacts-sqlite/"
     "contacts.db")
@@ -128,6 +130,8 @@ DEFAULT_CONFIG = {
         # choisi : {"name": ..., "lat": ..., "lon": ...}
         "weather": False,
         "place": {},
+        # Annoncer les prochains rendez-vous de la journée
+        "agenda": False,
         # Encadrer chaque bloc lu de bips, et séparer ses notifications par
         # un bip (sinon par un silence)
         "beep": True,
@@ -652,6 +656,7 @@ PHRASES = {
 SUMMARY_PHRASES = {
     "fr": {
         "hello": "Bonjour.", "evening": "Bonsoir.",
+        "agenda": "Vos prochains rendez-vous aujourd'hui.", "agenda_at": "À {h} heures {m}, {title}.", "agenda_at0": "À {h} heures, {title}.", "agenda_allday": "Toute la journée, {title}.", "agenda_none": "Plus de rendez-vous aujourd'hui.",
         "date": "Nous sommes le {weekday} {day} {month}.",
         "time": "Il est {h} heures {m}.", "time0": "Il est {h} heures.",
         "none": "Vous n'avez aucune notification.",
@@ -669,6 +674,7 @@ SUMMARY_PHRASES = {
     },
     "en": {
         "hello": "Hello.", "evening": "Good evening.",
+        "agenda": "Your next appointments today.", "agenda_at": "At {h12}:{m:02d} {ampm}, {title}.", "agenda_at0": "At {h12} {ampm}, {title}.", "agenda_allday": "All day, {title}.", "agenda_none": "No more appointments today.",
         "date": "Today is {weekday}, {month} {day}.",
         "time": "It is {h12}:{m:02d} {ampm}.", "time0": "It is {h12} {ampm}.",
         "none": "You have no notifications.",
@@ -687,6 +693,7 @@ SUMMARY_PHRASES = {
     },
     "de": {
         "hello": "Guten Tag.", "evening": "Guten Abend.",
+        "agenda": "Ihre nächsten Termine heute.", "agenda_at": "Um {h} Uhr {m}, {title}.", "agenda_at0": "Um {h} Uhr, {title}.", "agenda_allday": "Ganztägig, {title}.", "agenda_none": "Heute keine weiteren Termine.",
         "date": "Heute ist {weekday}, der {day}. {month}.",
         "time": "Es ist {h} Uhr {m}.", "time0": "Es ist {h} Uhr.",
         "none": "Sie haben keine Benachrichtigungen.",
@@ -705,6 +712,7 @@ SUMMARY_PHRASES = {
     },
     "es": {
         "hello": "Hola.", "evening": "Buenas tardes.",
+        "agenda": "Sus próximas citas de hoy.", "agenda_at": "A las {h} y {m}, {title}.", "agenda_at0": "A las {h}, {title}.", "agenda_allday": "Todo el día, {title}.", "agenda_none": "No hay más citas hoy.",
         "date": "Hoy es {weekday} {day} de {month}.",
         "time": "Son las {h} y {m}.", "time0": "Son las {h}.",
         "none": "No tiene ninguna notificación.",
@@ -722,6 +730,7 @@ SUMMARY_PHRASES = {
     },
     "it": {
         "hello": "Buongiorno.", "evening": "Buonasera.",
+        "agenda": "I suoi prossimi appuntamenti di oggi.", "agenda_at": "Alle {h} e {m}, {title}.", "agenda_at0": "Alle {h}, {title}.", "agenda_allday": "Tutto il giorno, {title}.", "agenda_none": "Nessun altro appuntamento oggi.",
         "date": "Oggi è {weekday} {day} {month}.",
         "time": "Sono le {h} e {m}.", "time0": "Sono le {h}.",
         "none": "Non ha nessuna notifica.",
@@ -1989,6 +1998,222 @@ def weather_phrase(lang):
     return text
 
 
+# ---------------------------------------------------------------------------
+# Agenda : rendez-vous restants de la journée
+# ---------------------------------------------------------------------------
+
+def calendar_db_path():
+    """Base de l'agenda de Sailfish (mkcal), lue directement si possible,
+    sinon par une copie de l'assistant (elle est réservée au groupe
+    « privileged »)."""
+    if CALENDAR_DB:
+        return CALENDAR_DB
+    plain = os.path.join(HOME, ".local/share/system/Calendar/mkcal/db")
+    if os.access(plain, os.R_OK):
+        return plain
+    if os.path.exists(HELPER):
+        try:
+            subprocess.run([HELPER, "calendar"], timeout=5,
+                           stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL)
+        except Exception as exc:
+            dbg("copie de l'agenda impossible :", exc)
+    path = os.path.join(CACHE_DIR, "calendar.db")
+    return path if os.path.exists(path) else None
+
+
+def _local_dt(secs, secs_local, tz):
+    """Heure locale d'une date de mkcal. Une date « flottante » (journée
+    entière, ou heure sans fuseau) est stockée comme heure locale ; les
+    autres en temps universel."""
+    import datetime
+    if not tz or tz == "FloatingDate":
+        return datetime.datetime.utcfromtimestamp(secs_local or 0)
+    return datetime.datetime.fromtimestamp(secs or 0)
+
+
+def _ints(text):
+    out = []
+    for x in (text or "").split():
+        try:
+            out.append(int(x))
+        except ValueError:
+            pass
+    return out
+
+
+def _month_pos(day, last_day):
+    """Rang de ce jour de semaine dans le mois : (1..5, -1..-5)."""
+    return (day.day - 1) // 7 + 1, -((last_day - day.day) // 7 + 1)
+
+
+def rule_matches(rule, start, day):
+    """Ce jour est-il une occurrence de la règle de répétition (RRULE),
+    sans tenir compte du nombre maximal d'occurrences ?
+
+    Règles prises en charge : quotidienne, hebdomadaire (jours choisis),
+    mensuelle (jour du mois, ou « 2e mardi », « dernier vendredi »),
+    annuelle ; intervalle et date de fin. C'est ce que propose
+    l'application Agenda de Sailfish ; les règles plus rares importées
+    d'ailleurs peuvent être mal comprises."""
+    import calendar
+    import datetime
+    d0 = start.date()
+    if day < d0:
+        return False
+    if rule["until"] and day > rule["until"]:
+        return False
+    freq, interval = rule["freq"], max(1, rule["interval"] or 1)
+    bydays = list(zip(_ints(rule["byday"]), _ints(rule["bydaypos"]) or
+                      [0] * len(_ints(rule["byday"]))))
+    wd = day.isoweekday()   # 1 = lundi, comme dans mkcal
+    last = calendar.monthrange(day.year, day.month)[1]
+
+    def day_rule_ok(default_day):
+        mdays = _ints(rule["bymonthday"])
+        if mdays:
+            return any(day.day == (m if m > 0 else last + 1 + m)
+                       for m in mdays)
+        if bydays:
+            pos, neg = _month_pos(day, last)
+            return any(w == wd and (p == 0 or p == pos or p == neg)
+                       for w, p in bydays)
+        return day.day == default_day
+
+    if freq == 4:      # quotidienne
+        return (day - d0).days % interval == 0
+    if freq == 5:      # hebdomadaire
+        monday0 = d0 - datetime.timedelta(days=d0.weekday())
+        monday = day - datetime.timedelta(days=day.weekday())
+        if ((monday - monday0).days // 7) % interval:
+            return False
+        days = [w for w, _p in bydays] or [d0.isoweekday()]
+        return wd in days
+    if freq == 6:      # mensuelle
+        months = (day.year - d0.year) * 12 + day.month - d0.month
+        return months % interval == 0 and day_rule_ok(d0.day)
+    if freq == 7:      # annuelle
+        if (day.year - d0.year) % interval:
+            return False
+        if day.month not in (_ints(rule["bymonth"]) or [d0.month]):
+            return False
+        return day_rule_ok(d0.day)
+    return False
+
+
+def occurs_on(rule, start, day):
+    if not rule_matches(rule, start, day):
+        return False
+    count = rule["count"]
+    if count and count > 0:
+        # Nombre limité d'occurrences : on compte celles qui précèdent.
+        import datetime
+        n, d = 0, start.date()
+        while d < day:
+            if rule_matches(rule, start, d):
+                n += 1
+                if n >= count:
+                    return False
+            d += datetime.timedelta(days=1)
+    return True
+
+
+def today_agenda(now=None):
+    """Rendez-vous restants aujourd'hui : liste de (début ou None pour une
+    journée entière, titre), dans l'ordre."""
+    import datetime
+    import sqlite3
+    path = calendar_db_path()
+    if not path:
+        raise RuntimeError("agenda introuvable")
+    now_dt = datetime.datetime.fromtimestamp(now or time.time())
+    today = now_dt.date()
+    db = sqlite3.connect("file:%s" % path, uri=True, timeout=2)
+    try:
+        hidden = set()
+        try:
+            for cid, flags in db.execute("SELECT CalendarId, Flags "
+                                         "FROM Calendars"):
+                if flags is not None and not int(flags) & 128:
+                    hidden.add(cid)
+        except sqlite3.Error:
+            pass
+        rules = {}
+        for row in db.execute(
+                "SELECT ComponentId, Frequency, Until, UntilLocal, "
+                "untilTimeZone, Count, Interval, ByDay, ByDayPos, "
+                "ByMonthDay, ByMonth FROM Recursive WHERE RuleType = 1"):
+            until = None
+            if row[2] or row[3]:
+                until = _local_dt(row[2], row[3], row[4]).date()
+            rules.setdefault(row[0], []).append({
+                "freq": row[1], "until": until, "count": row[5],
+                "interval": row[6], "byday": row[7], "bydaypos": row[8],
+                "bymonthday": row[9], "bymonth": row[10]})
+        extra, excluded = {}, {}
+        for cid, typ, secs, local, tz in db.execute(
+                "SELECT ComponentId, Type, Date, DateLocal, TimeZone "
+                "FROM Rdates"):
+            d = _local_dt(secs, local, tz)
+            (excluded if typ in (2, 4) else extra).setdefault(
+                cid, set()).add(d.date())
+        comps = db.execute(
+            "SELECT ComponentId, Notebook, Summary, DateStart, "
+            "DateStartLocal, StartTimeZone, UID, RecurId, RecurIdLocal, "
+            "RecurIdTimeZone FROM Components WHERE Type = 'Event' "
+            "AND (DateDeleted IS NULL OR DateDeleted = 0)").fetchall()
+    finally:
+        db.close()
+    # Occurrences modifiées : elles remplacent celle de l'événement parent.
+    moved = set()
+    for c in comps:
+        if c[7] or c[8]:
+            moved.add((c[6], _local_dt(c[7], c[8], c[9]).date()))
+    out = []
+    for cid, notebook, title, ds, dsl, tz, uid, rid, ridl, ridtz in comps:
+        if notebook in hidden or not (title or "").strip():
+            continue
+        start = _local_dt(ds, dsl, tz)
+        allday = tz == "FloatingDate"
+        on_day = start.date() == today
+        if not on_day and cid in rules and not (rid or ridl):
+            if (uid, today) not in moved and \
+                    today not in excluded.get(cid, ()):
+                on_day = any(occurs_on(r, start, today)
+                             for r in rules[cid])
+        if not on_day and today in extra.get(cid, ()):
+            on_day = True
+        if not on_day:
+            continue
+        at = datetime.datetime.combine(today, start.time())
+        if not allday and at < now_dt:
+            continue
+        out.append((None if allday else at, clean(title)))
+    out.sort(key=lambda x: (x[0] is not None, x[0] or now_dt))
+    return out
+
+
+def agenda_phrase(lang, now=None):
+    try:
+        items = today_agenda(now)
+    except Exception as exc:
+        log("agenda illisible :", exc)
+        return ""
+    if not items:
+        return sp("agenda_none", lang)
+    parts = [sp("agenda", lang)]
+    for at, title in items:
+        if at is None:
+            parts.append(sp("agenda_allday", lang).format(title=title))
+            continue
+        h12 = at.hour % 12 or 12
+        ampm = "AM" if at.hour < 12 else "PM"
+        key = "agenda_at0" if at.minute == 0 else "agenda_at"
+        parts.append(sp(key, lang).format(h=at.hour, m=at.minute, h12=h12,
+                                          ampm=ampm, title=title))
+    return " ".join(parts)
+
+
 SUMMARY_MODES = ("ignore", "count", "titles", "full")
 
 
@@ -2060,6 +2285,10 @@ def build_summary(events, lang, now=None):
         if w:
             intro.append(w)
     out = [("say", " ".join(x for x in intro if x), lang, []), ("pause",)]
+    if sc.get("agenda"):
+        a = agenda_phrase(lang, now)
+        if a:
+            out += [("say", a, lang, []), ("pause",)]
     total = sum(len(groups[a]["items"]) for a in order)
     if not total:
         out.append(("say", sp("none", lang) + " " +
@@ -2308,6 +2537,14 @@ def migrate(cfg):
         if k in sm:
             sm.pop(k)
             changed = True
+    # 1.5.0 : le lieu de la météo garde son nom court (pour la zone de
+    # saisie) et son nom complet (pour l'étiquette).
+    place = sm.get("place")
+    if isinstance(place, dict) and place.get("name") and \
+            not place.get("label"):
+        place["label"] = place["name"]
+        place["name"] = place["name"].split(",")[0].strip()
+        changed = True
     if "new_apps_default" in cfg:
         cfg.pop("new_apps_default")
         changed = True

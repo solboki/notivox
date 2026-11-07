@@ -16,16 +16,16 @@ By default nothing is ever spoken on the phone's loudspeaker. Notivox only talks
 
 Each message is read by a voice in its own language when one is installed: a message in English is read by an English voice, a message in French by a French voice. Voices are downloaded from the settings page, from the public Piper voice repository, in more than fifty languages. For a language without a Piper voice, the much more robotic but very wide eSpeak NG voice can step in.
 
-A spoken summary reads the notifications still shown in the Events view. After a greeting, and optionally the date, time and weather, it says how many notifications there are; then, app by app, according to that app's summary setting, it gives their count, their titles or their full content, framed by short beeps. It can be started from the settings, from Situations (`notivox-ctl events`, or `notivox-ctl events-speakers` to use the loudspeaker when no headphones are connected), or automatically when headphones connect. Notifications can optionally be cleared once read. The weather comes from the free Open-Meteo service and needs an Internet connection.
+A spoken summary reads the notifications still shown in the Events view. After a greeting, and optionally the date, time, weather and today's next appointments, it says how many notifications there are; then, app by app, according to that app's summary setting, it gives their count, their titles or their full content, framed by short beeps. It can be started from the settings, from Situations (`notivox-ctl events`, or `notivox-ctl events-speakers` to use the loudspeaker when no headphones are connected), or automatically when headphones connect. Notifications can optionally be cleared once read. The weather comes from the free Open-Meteo service and needs an Internet connection.
 
 Reading can be controlled in four ways: the main switch, a timed pause (15 minutes, one hour, two hours, until tomorrow morning), quiet hours by day and time, and the [Situations](https://forum.sailfishos.org/t/situations-application-feedback/16333) app through a command or a D-Bus signal.
 
 ## Installing
 
-Copy `notivox-1.4.0-1.aarch64.rpm` to the phone, then in a terminal:
+Copy `notivox-1.5.0-1.aarch64.rpm` to the phone, then in a terminal:
 
 ```
-devel-su pkcon install-local notivox-1.4.0-1.aarch64.rpm
+devel-su pkcon install-local notivox-1.5.0-1.aarch64.rpm
 ```
 
 The package is for 64-bit ARM phones (aarch64) and weighs about 21 MB, most of it being the Piper engine.

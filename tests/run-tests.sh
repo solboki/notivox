@@ -182,6 +182,18 @@ n=$(grep -c '^fermeture' "$WORK/bus.log")
 if [ "$n" -eq 4 ]; then echo "ok    quatre notifications lues puis effacées (nombre seul et appel non effaçable gardés)"
 else echo "ÉCHEC effacement : $n fermetures"; cat "$WORK/bus.log"; FAIL=1; fi
 
+echo "== rendez-vous du jour"
+W=$(mktemp -d); python3 "$HERE/make_calendar_db.py" "$W/c.db"
+R=$(NOTIVOX_CALENDAR_DB="$W/c.db" NOTIVOX_CACHE_DIR="$W" python3 -c "
+import time
+from importlib.machinery import SourceFileLoader
+m = SourceFileLoader('d', '$DAEMON').load_module()
+m.CFG = m.merge(m.DEFAULT_CONFIG, {})
+print(m.agenda_phrase('fr', time.mktime((2026, 11, 7, 12, 0, 0, 0, 0, -1))))")
+E="Vos prochains rendez-vous aujourd'hui. Toute la journée, Anniversaire de papa. À 12 heures 30, Déjeuner avec Alice. À 16 heures, Marché. À 18 heures, Piscine. À 21 heures, Chorale."
+if [ "$R" = "$E" ]; then echo "ok    rendez-vous restants (répétitions, exceptions, agenda masqué, occurrence déplacée)"
+else echo "ÉCHEC rendez-vous : $R"; FAIL=1; fi
+
 echo "== résumé sans écouteurs"
 OUTPUT=speaker run summary '{"debug": true}' 6
 plays "events : rien n'est lu sans écouteurs" 0

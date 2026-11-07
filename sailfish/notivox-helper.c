@@ -3,6 +3,7 @@
  * Sailfish OS, pour que le service Notivox puisse la lire :
  *   notivox-helper contacts       le carnet d'adresses (nom de l'appelant)
  *   notivox-helper notifications  les notifications de la Vue Événements
+ *   notivox-helper calendar       l'agenda (rendez-vous du jour)
  * Sans argument, c'est le carnet d'adresses.
  *
  * Ces bases sont réservées au groupe « privileged ». Ce programme est
@@ -27,13 +28,19 @@ struct base {
     const char *word;     /* argument accepté */
     const char *dir;      /* dossier de la base, sous le dossier personnel */
     const char *names[2]; /* la base et son journal (mode WAL) */
+    const char *copies[2]; /* noms des copies dans ~/.cache/notivox */
 };
 
 static const struct base bases[] = {
     { "contacts", "/.local/share/system/privileged/Contacts/qtcontacts-sqlite/",
+      { "contacts.db", "contacts.db-wal" },
       { "contacts.db", "contacts.db-wal" } },
     { "notifications", "/.local/share/system/privileged/Notifications/",
+      { "notifications.db", "notifications.db-wal" },
       { "notifications.db", "notifications.db-wal" } },
+    { "calendar", "/.local/share/system/privileged/Calendar/mkcal/",
+      { "db", "db-wal" },
+      { "calendar.db", "calendar.db-wal" } },
 };
 
 /* Dossier personnel de l'utilisateur réel, lu dans /etc/passwd. On ne se
@@ -110,7 +117,7 @@ int main(int argc, char **argv)
         ssize_t n;
         int out;
 
-        snprintf(fin, sizeof fin, "%s" DST "%s", home, names[i]);
+        snprintf(fin, sizeof fin, "%s" DST "%s", home, b->copies[i]);
         if (in[i] < 0) {
             unlink(fin);
             continue;

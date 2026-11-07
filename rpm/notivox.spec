@@ -1,5 +1,5 @@
 Name:       notivox
-Version:    1.4.0
+Version:    1.5.0
 Release:    1
 Summary:    Reads notifications and incoming calls aloud in your headphones
 License:    GPL-3.0-or-later
@@ -105,6 +105,10 @@ systemctl-user daemon-reload >/dev/null 2>&1 || :
 %{_datadir}/translations/settings-notivox*.qm
 
 %changelog
+* Sat Nov 07 2026 Boris Solodki <solboki@solodki.fr> - 1.5.0-1
+- Summary option: today's next appointments from the Calendar.
+- Weather town chosen from live suggestions; the chosen town stays in the
+  field.
 * Sat Nov 07 2026 Boris Solodki <solboki@solodki.fr> - 1.4.0-1
 - Everything is set per app: on arrival (ignore, titles, everything, and
   optionally on the speaker) and in the summary (ignore, count, titles,

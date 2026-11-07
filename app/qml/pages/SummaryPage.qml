@@ -5,7 +5,15 @@ import ".."
 Page {
     id: page
     property string placeMessage: ""
-    property bool searching: false
+    property var suggestions: []
+
+    function choose(place) {
+        suggestions = []
+        placeMessage = ""
+        placeField.text = place.name
+        placeField.focus = false
+        NV.py.call("notivox_ui.set_place", [place], function(c) { NV.cfg = c; NV.refresh() })
+    }
 
     SilicaFlickable {
         anchors.fill: parent
@@ -65,24 +73,81 @@ Page {
             }
             TextField {
                 id: placeField
+                // Nom de la ville retenue : le texte ne lance pas de recherche
+                // tant qu'il lui est identique.
+                property string chosen: NV.get(["summary", "place", "name"], "")
                 width: parent.width
                 visible: weatherSwitch.checked
+                placeholderText: NV.t("Indiquer la ville", "Enter the town")
                 label: page.placeMessage !== "" ? page.placeMessage
-                       : (NV.get(["summary", "place", "name"], "") || NV.t("Ville de la météo", "Weather town"))
-                placeholderText: NV.t("Ville, par exemple Blois", "Town, for example Blois")
-                text: ""
-                enabled: !page.searching
-                EnterKey.iconSource: "image://theme/icon-m-search"
+                       : (NV.get(["summary", "place", "label"], "") || NV.t("Ville de la météo", "Weather town"))
+                Component.onCompleted: text = chosen
+                onChosenChanged: if (!activeFocus) text = chosen
+                onTextChanged: {
+                    if (!activeFocus || text === chosen || text.trim().length < 2) {
+                        page.suggestions = []
+                        searchTimer.stop()
+                        return
+                    }
+                    searchTimer.restart()
+                }
+                onActiveFocusChanged: {
+                    // Sans choix dans la liste, on revient à la ville retenue.
+                    if (!activeFocus && page.suggestions.length === 0) text = chosen
+                }
+                EnterKey.iconSource: "image://theme/icon-m-enter-accept"
                 EnterKey.onClicked: {
-                    page.searching = true
+                    if (page.suggestions.length > 0) page.choose(page.suggestions[0])
+                    else focus = false
+                }
+            }
+            Timer {
+                id: searchTimer
+                interval: 400
+                onTriggered: {
+                    var q = placeField.text
                     page.placeMessage = NV.t("Recherche…", "Searching…")
-                    NV.py.call("notivox_ui.find_place", [text], function(name) {
-                        page.searching = false
-                        page.placeMessage = name !== "" ? name : NV.t("Lieu introuvable", "Place not found")
-                        if (name !== "") { placeField.text = ""; NV.refresh() }
-                        placeField.focus = false
+                    NV.py.call("notivox_ui.search_places", [q], function(list) {
+                        if (placeField.text !== q) return
+                        page.suggestions = list
+                        page.placeMessage = list.length === 0 ? NV.t("Aucune ville trouvée", "No town found") : ""
                     })
                 }
+            }
+            Repeater {
+                model: weatherSwitch.checked ? page.suggestions : []
+                BackgroundItem {
+                    width: col.width
+                    height: Theme.itemSizeSmall
+                    onClicked: page.choose(modelData)
+                    Column {
+                        x: Theme.horizontalPageMargin * 2
+                        width: parent.width - x - Theme.horizontalPageMargin
+                        anchors.verticalCenter: parent.verticalCenter
+                        Label {
+                            width: parent.width
+                            truncationMode: TruncationMode.Fade
+                            text: modelData.name
+                            color: highlighted ? Theme.highlightColor : Theme.primaryColor
+                        }
+                        Label {
+                            width: parent.width
+                            truncationMode: TruncationMode.Fade
+                            font.pixelSize: Theme.fontSizeExtraSmall
+                            text: modelData.detail
+                            color: Theme.secondaryColor
+                        }
+                    }
+                }
+            }
+
+            TextSwitch {
+                text: NV.t("Annoncer les prochains rendez-vous du jour", "Announce today's next appointments")
+                description: NV.t("L'heure et le titre des rendez-vous restants de la journée, d'après l'Agenda. Les agendas masqués sont ignorés.",
+                                  "The time and title of the appointments left today, from the Calendar. Hidden calendars are skipped.")
+                checked: NV.get(["summary", "agenda"], false)
+                automaticCheck: false
+                onClicked: NV.setCfg(["summary", "agenda"], !checked)
             }
 
             SectionHeader { text: NV.t("Lecture", "Reading") }

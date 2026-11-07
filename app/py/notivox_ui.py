@@ -236,26 +236,36 @@ def test_lang(lang):
     _signal("Test", "string:" + (lang or ""))
 
 
-def find_place(name):
-    """Cherche un lieu pour la météo (service de géocodage d'Open-Meteo)
-    et l'enregistre. Renvoie le nom retenu, ou "" si rien n'est trouvé."""
+def search_places(name, count=6):
+    """Lieux dont le nom commence par ce texte, pour la météo (service de
+    géocodage d'Open-Meteo) : liste de {name, label, lat, lon}."""
     import urllib.parse
-    url = ("https://geocoding-api.open-meteo.com/v1/search?count=1"
-           "&language=fr&name=" + urllib.parse.quote(name.strip()))
+    name = (name or "").strip()
+    if len(name) < 2:
+        return []
+    url = ("https://geocoding-api.open-meteo.com/v1/search?count=%d"
+           "&language=fr&name=%s" % (count, urllib.parse.quote(name)))
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Notivox"})
         with urllib.request.urlopen(req, timeout=8) as r:
             res = json.load(r).get("results") or []
     except Exception:
-        return ""
-    if not res:
-        return ""
-    r = res[0]
-    label = ", ".join(x for x in (r.get("name"), r.get("admin1"),
-                                  r.get("country")) if x)
-    set_value(["summary", "place"], {"name": label, "lat": r["latitude"],
-                                     "lon": r["longitude"]})
-    return label
+        return []
+    out = []
+    for r in res:
+        detail = ", ".join(x for x in (r.get("admin2") or r.get("admin1"),
+                                       r.get("country")) if x)
+        out.append({"name": r.get("name", ""), "detail": detail,
+                    "label": ", ".join(x for x in (r.get("name"), detail)
+                                       if x),
+                    "lat": r["latitude"], "lon": r["longitude"]})
+    return out
+
+
+def set_place(place):
+    keep = {k: place[k] for k in ("name", "label", "lat", "lon")
+            if k in place}
+    return set_value(["summary", "place"], keep)
 
 
 def summary(force=True):
