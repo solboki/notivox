@@ -18,21 +18,21 @@ Each message is read by a voice in its own language when one is installed: a mes
 
 A spoken summary reads the notifications still shown in the Events view. After a greeting, and optionally the date, time, weather and today's next appointments, it says how many notifications there are; then, app by app, according to that app's summary setting, it gives their count, their titles or their full content, framed by short beeps. It can be started from the settings, from Situations (`notivox-ctl events`, or `notivox-ctl events-speakers` to use the loudspeaker when no headphones are connected), or automatically when headphones connect. Notifications can optionally be cleared once read. The weather comes from the free Open-Meteo service and needs an Internet connection.
 
-While Notivox speaks, music and podcasts are paused, and they resume afterwards. A short press on the headset's play/pause button stops Notivox and resumes the playback it had paused.
+While Notivox speaks, music and podcasts are paused, and they resume afterwards. A short press on the headset's play/pause button stops Notivox and resumes the playback it had paused. Sailfish does not send that press to Notivox but to a media player of its choice, often the first one started; Notivox notices the command, stops, and pauses that player again if it was not the one playing. With two players open (a podcast app and Deezer, say), the other player may therefore be heard for a fraction of a second.
 
 Reading can be controlled in four ways: the main switch, a timed pause (15 minutes, one hour, two hours, until tomorrow morning), quiet hours by day and time, and the [Situations](https://forum.sailfishos.org/t/situations-application-feedback/16333) app through a command or a D-Bus signal.
 
 ## Installing
 
-Copy `notivox-1.7.1-1.aarch64.rpm` to the phone, then in a terminal:
+Download `notivox-2.0.0-1.aarch64.rpm` from the [Releases](https://github.com/solboki/notivox/releases) page, copy it to the phone, then in a terminal:
 
 ```
-devel-su pkcon install-local notivox-1.7.1-1.aarch64.rpm
+devel-su pkcon install-local notivox-2.0.0-1.aarch64.rpm
 ```
 
 The package is for 64-bit ARM phones (aarch64) and weighs about 21 MB, most of it being the Piper engine.
 
-Notivox has no app icon: its settings are in **Settings › Voice notifications** (the name follows the system language). The background service starts with the phone. When you first open the page, it offers to download a voice in your language (about 60 MB for a "medium" voice, 28 MB for a "low" one). Then open **Apps**: apps appear there with their first notification, all switched off, and you switch on those you want to hear. You can change the default in the same page.
+Notivox has no app icon: its settings are in **Settings › Voice notifications** (the name follows the system language). The background service starts with the phone. When you first open the page, it offers to download a voice in your language (about 60 MB for a "medium" voice, 28 MB for a "low" one). Then open **Apps**: apps appear there with their first notification. Only Messages and calls are read by default; for every other app, choose what is read on arrival and in the summary.
 
 ## Situations and the command line
 
@@ -49,9 +49,12 @@ notivox-ctl say "Some text"
 notivox-ctl events          # read the Events view summary (headphones only)
 notivox-ctl events-speakers # same, on the speaker if no headphones
 notivox-ctl stop            # stop reading
+notivox-ctl preview         # show what the summary would read
+notivox-ctl log             # show the log
+notivox-ctl contact NUMBER  # look a number up in the address book
 ```
 
-In Situations, add a "run command" action with one of these lines. If you prefer D-Bus, the same orders exist as signals on the session bus, path `/org/notivox`, interface `org.notivox.Control`: `Enable`, `Disable`, `Toggle`, `Resume`, `Pause` (int32, minutes) and `Say` (string).
+In Situations, add a "run command" action with one of these lines. If you prefer D-Bus, the same orders exist as signals on the session bus, path `/org/notivox`, interface `org.notivox.Control`: `Enable`, `Disable`, `Toggle`, `Resume`, `Pause` (int32, minutes), `Say` (string), `Summary` (with the string `speaker` to allow the loudspeaker) and `Stop`.
 
 ```
 dbus-send --session --type=signal /org/notivox org.notivox.Control.Pause int32:30
@@ -63,9 +66,13 @@ Some parts depend on how each Sailfish device is set up and could only be tested
 
 Headphone detection relies on `pactl` (run in English, whatever the phone's language), with a fallback that asks BlueZ whether an audio device is connected. If your wired headphones are not recognised, the option "Read if the output is not recognised" lets Notivox talk anyway.
 
-The voice is played as a "notification" audio stream, sent by name to the headphones, for notifications and calls alike. (Version 1.0.0 used the ringtone's own stream type for calls, which Sailfish plays on the loudspeaker.) If the voice does not reach the headphones, these stream properties can be changed in the advanced options.
+The voice is played as a "notification" audio stream, sent by name to the headphones, for notifications and calls alike. If the voice does not reach the headphones, these stream properties can be changed in the advanced options.
 
-If calls are announced with the number instead of the name, `notivox-ctl contact NUMBER` shows how many numbers were read from the address book and the last error. The Sailfish address book is reserved for privileged programs. Notivox ships a tiny helper, `/usr/libexec/notivox/notivox-helper`, installed with that right, which copies your own address book to `~/.cache/notivox/`, readable by you only, at each incoming call. If it fails, calls are announced with the number.
+If calls are announced with the number instead of the name, `notivox-ctl contact NUMBER` shows how many numbers were read from the address book and the last error. The Sailfish address book, the store of the Events view and the calendar are reserved for privileged programs. Notivox ships a tiny helper, `/usr/libexec/notivox/notivox-helper`, installed with that right, which copies your own data to `~/.cache/notivox/`, readable by you only, when it is needed: the address book at an incoming call, the Events view for the summary, the calendar for today's appointments. It accepts nothing but these three words and gives up its right before writing anything. If it fails, calls are announced with the number and the summary is empty.
+
+## Tested with
+
+Notivox 2.0.0 was tested in French on a Jolla Phone 2026 (Sailfish OS 5) with Bose QuietComfort Ultra Earbuds (2nd Gen), Apple AirPods Pro (2nd generation), Powerbeats Pro and wired headphones, with Sailcast and Deezer (through App Support) as media players.
 
 ## Uninstalling
 
@@ -84,13 +91,13 @@ sudo apt install rpm gcc-aarch64-linux-gnu curl qttools5-dev-tools
 ./make-dist.sh
 ```
 
-The script downloads the Piper release for aarch64 and a newer libstdc++ from Debian 11 (Piper needs version 3.4.26, newer than the one shipped with Sailfish OS), compiles the address-book helper, then produces the RPM and a source archive in `dist/`.
+The script downloads the Piper release for aarch64 and a newer libstdc++ from Debian 11 (Piper needs version 3.4.26, newer than the one shipped with Sailfish OS), compiles the privileged helper, compiles the translations, then produces the RPM and a source archive in `dist/`.
 
 To release a new version, change the number in three places: `V=` in `make-dist.sh`, `Version:` in `rpm/notivox.spec` and `VERSION` in `sailfish/notivox-daemon`. Add an entry to `CHANGELOG.md` and to the `%changelog` of the spec file.
 
 ## Tests
 
-The service can be tested on a Linux computer without a phone. The test script starts a temporary D-Bus bus, sends notifications, incoming calls and Situations commands on it, and checks what the service would have said:
+The service can be tested on a Linux computer without a phone. The test script starts a temporary D-Bus bus, sends notifications, incoming calls, Situations commands, a simulated Events view, calendar and media player on it, and checks what the service would have said and done:
 
 ```
 pip install dbus-next
@@ -103,7 +110,7 @@ PIPER_DIR=/path/to/piper_x86_64 VOICE=/path/to/fr_FR-siwis-medium.onnx ./tests/r
 
 | Folder | Content |
 |---|---|
-| `sailfish/` | The service (Python, needing only `python3`, `dbus-monitor` and `dbus-send`), the `notivox-ctl` command, the address-book helper, the systemd unit and the launcher. |
+| `sailfish/` | The service (Python, needing only `python3`, `dbus-monitor`, `dbus-send` and `pactl`), the `notivox-ctl` command, the privileged helper, the systemd unit and the script placing the Settings entry. |
 | `app/` | The settings page, shown in the Settings app: Silica interface (QML) and Python backend (PyOtherSide). |
 | `settings/` | The entry that adds the page to the Settings app. |
 | `translations/` | Translations of the page title in the Settings list. |

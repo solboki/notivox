@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.0.0 (2026-11-07)
+
+First published version since 1.1.1. It gathers the development versions 1.2.0 to 1.7.1, detailed below.
+
+- **Spoken summary of the Events view.** A greeting, then optionally the date and time, the weather of a chosen town (Open-Meteo) and today's next appointments from the Calendar; the number of notifications; then, app by app, their count, their titles or their full content, framed by short beeps; a closing sentence. It can be started from the settings page, from Situations (`notivox-ctl events`, or `notivox-ctl events-speakers` to allow the loudspeaker), or automatically when headphones connect. Notifications read can be cleared from the Events view.
+- **Everything is set per app**, in the Apps page: on arrival (ignore, titles, everything, optionally on the loudspeaker) and in the summary (ignore, count, titles, everything). New apps are ignored, except Messages and calls.
+- **Music and podcasts are paused** while Notivox speaks and resume afterwards. A short press on the headset button stops Notivox and resumes the playback.
+- `notivox-ctl preview` shows what the summary would read; `notivox-ctl stop` stops reading.
+- The privileged helper, now `notivox-helper`, also copies the Events view store and the calendar.
+- Better language detection between neighbouring languages.
+
+The development versions below were not published.
+
 ## 1.7.1 (2026-11-07, not published)
 
 - Fixed: after a press on the headset button, the summary went on with its next sentence and paused the music again. Interrupting now also stops the preparation of the remaining sentences.

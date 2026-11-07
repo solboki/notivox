@@ -32,7 +32,7 @@ import time
 import wave
 from array import array
 
-VERSION = "1.7.1"
+VERSION = "2.0.0"
 
 HOME = os.path.expanduser("~")
 CONF_DIR = os.environ.get("NOTIVOX_CONF_DIR",
