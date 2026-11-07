@@ -203,6 +203,13 @@ check "appui court : lecture interrompue" "bouton du casque : lecture interrompu
 check "la suite du résumé est abandonnée" "Fin de vos notifications" 0
 grep -q 'lecteur encore présent : False' "$WORK/bus.log" && echo "ok    bouton rendu au lecteur de musique après la lecture" || { echo "ÉCHEC nom MPRIS non rendu"; cat "$WORK/bus.log"; FAIL=1; }
 
+echo "== bouton du casque donné par Sailfish à un autre lecteur"
+PLAYDELAY=0.8 run button2 '{"debug": true, "apps": {"WhatsApp": {"summary": "full"}, "Signal": {"summary": "full"}}}' 12
+check "ordre au lecteur de podcasts repéré, lecture interrompue" "bouton du casque (ordre Play"
+check "état du lecteur noté au début" "alors Paused"
+check "la suite du résumé est abandonnée" "Fin de vos notifications" 0
+grep -q '^podcast Pause' "$WORK/bus.log" && echo "ok    lecteur de podcasts remis en pause" || { echo "ÉCHEC podcast non remis en pause"; cat "$WORK/bus.log"; FAIL=1; }
+
 echo "== résumé sans écouteurs"
 OUTPUT=speaker run summary '{"debug": true}' 6
 plays "events : rien n'est lu sans écouteurs" 0

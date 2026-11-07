@@ -32,7 +32,7 @@ import time
 import wave
 from array import array
 
-VERSION = "1.6.0"
+VERSION = "1.6.1"
 
 HOME = os.path.expanduser("~")
 CONF_DIR = os.environ.get("NOTIVOX_CONF_DIR",
@@ -635,8 +635,11 @@ class MiniBus:
         self.buf = b""
         self.lock = threading.Lock()
         self.pending = {}
-        self.call("org.freedesktop.DBus", "/org/freedesktop/DBus",
-                  "org.freedesktop.DBus", "Hello", "", [], wait=True)
+        self.hello = self.call("org.freedesktop.DBus",
+                               "/org/freedesktop/DBus",
+                               "org.freedesktop.DBus", "Hello", "", [],
+                               wait=True)
+        self.unique = ""
 
     def _line(self):
         out = b""
@@ -724,6 +727,8 @@ class MprisButton(threading.Thread):
         self.bus = None
         self.owned = False
         self.want = False
+        self.states = {}
+        self.ignore_until = 0.0
         self.lock = threading.Lock()
 
     def run(self):
@@ -737,11 +742,18 @@ class MprisButton(threading.Thread):
             self.bus = None
             time.sleep(10)
 
+    @property
+    def unique(self):
+        return self.bus.unique if self.bus else ""
+
     def loop(self):
         while True:
             msg = self.bus.receive()
             if msg is None:
                 return
+            if msg["type"] == 2 and msg.get(5) == self.bus.hello and \
+                    msg["args"]:
+                self.bus.unique = msg["args"][0]
             if msg["type"] == 1:
                 try:
                     self.handle(msg)
@@ -766,8 +778,35 @@ class MprisButton(threading.Thread):
                              [MPRIS_NAME], wait=True)
                 self.owned = on
                 dbg("bouton du casque %s" % ("pris" if on else "rendu"))
+                if on:
+                    threading.Thread(target=self.snapshot,
+                                     daemon=True).start()
             except Exception as exc:
                 dbg("MPRIS : %s" % exc)
+
+    def snapshot(self):
+        """Note l'état (lecture, pause…) des autres lecteurs au moment où
+        Notivox se met à parler, pour savoir ensuite si un appui sur le
+        bouton les a relancés."""
+        states = {}
+        names = dbus_send("session", "org.freedesktop.DBus", "/",
+                          "org.freedesktop.DBus.ListNames") or [[]]
+        for name in names[0] if names and isinstance(names[0], list) else []:
+            if not str(name).startswith("org.mpris.MediaPlayer2.") or \
+                    name == MPRIS_NAME:
+                continue
+            owner = dbus_send("session", "org.freedesktop.DBus", "/",
+                              "org.freedesktop.DBus.GetNameOwner",
+                              "string:" + name)
+            st = dbus_send("session", name, MPRIS_PATH,
+                           "org.freedesktop.DBus.Properties.Get",
+                           "string:org.mpris.MediaPlayer2.Player",
+                           "string:PlaybackStatus")
+            if owner and st:
+                states[owner[0]] = st[0]
+                states[name] = st[0]
+        self.states = states
+        dbg("lecteurs au début de la lecture :", states)
 
     def props(self, iface):
         if iface == "org.mpris.MediaPlayer2":
@@ -1828,9 +1867,44 @@ def remember_app(app, sample, hints):
     SEEN_DIRTY[0] = True
 
 
+def on_player_command(head):
+    """Un ordre (lecture, pause…) est envoyé à un lecteur multimédia.
+
+    Sailfish donne le bouton du casque à un lecteur choisi par lui (souvent
+    le premier lancé), et non à Notivox. Si un tel ordre passe pendant que
+    Notivox parle, c'est que l'on a appuyé sur le bouton : on interrompt
+    la lecture, et l'on remet en pause le lecteur que l'appui a relancé."""
+    if not BUTTON or not BUTTON.owned or \
+            not CFG.get("headset_button", True):
+        return
+    if time.time() < BUTTON.ignore_until:
+        return      # notre propre remise en pause
+    dest, member = head.get("destination", ""), head.get("member", "")
+    if member not in ("Play", "PlayPause", "Pause", "Stop", "Next",
+                      "Previous") or dest in (MPRIS_NAME, BUTTON.unique):
+        return
+    before = BUTTON.states.get(dest, "")
+    log("bouton du casque (ordre %s à %s, alors %s) : lecture interrompue"
+        % (member, dest, before or "état inconnu"))
+    stop_reading()
+    if member == "Play" or (member == "PlayPause" and before != "Playing"):
+        BUTTON.ignore_until = time.time() + 2
+
+        def pause_again():
+            time.sleep(0.15)
+            dbus_send("session", dest, MPRIS_PATH,
+                      "org.mpris.MediaPlayer2.Player.Pause")
+            dbg("lecteur %s remis en pause" % dest)
+        threading.Thread(target=pause_again, daemon=True).start()
+
+
 def on_session_message(head, vals):
     if head.get("interface") == CONTROL_IFACE:
         on_control(head.get("member", ""), vals)
+        return
+    if head.get("interface") == "org.mpris.MediaPlayer2.Player":
+        if "method call" in head.get("kind", ""):
+            on_player_command(head)
         return
     if head.get("member") != "Notify" or "method call" not in head["kind"]:
         return
@@ -3080,7 +3154,8 @@ def main():
         "session",
         ["type='method_call',interface='org.freedesktop.Notifications',"
          "member='Notify'",
-         "type='signal',interface='%s'" % CONTROL_IFACE],
+         "type='signal',interface='%s'" % CONTROL_IFACE,
+         "type='method_call',interface='org.mpris.MediaPlayer2.Player'"],
         on_session_message, "notifications")).start()
     threading.Thread(target=monitor, daemon=True, args=(
         OFONO_BUS,

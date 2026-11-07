@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.1 (2026-11-07, not published)
+
+- Headset button, second approach. Sailfish does not hand the button to Notivox: it sends the command to another player, usually the first one started (a podcast app in the test). While it speaks, Notivox now watches the commands sent to media players; when one passes, it stops reading and, if the press restarted that player, pauses it again within a fraction of a second.
+
 ## 1.6.0 (2026-11-07, not published)
 
 - A short press on the headset's play/pause button stops the reading in progress, including the rest of the summary; "next track" skips to the next notification. While it speaks, Notivox presents itself to Sailfish as a media player (MPRIS), and withdraws as soon as it falls silent, so the button goes back to the music player. If music is already playing, the button keeps controlling the music. Can be turned off in the advanced options.

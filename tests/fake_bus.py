@@ -4,7 +4,8 @@ org.notivox.Control. Utilisé par run-tests.sh."""
 import asyncio
 import sys
 from dbus_next.aio import MessageBus
-from dbus_next.service import ServiceInterface, method, signal
+from dbus_next.service import ServiceInterface, method, signal, dbus_property
+from dbus_next.constants import PropertyAccess
 from dbus_next import Variant, Message, MessageType
 
 
@@ -20,6 +21,32 @@ class Notif(ServiceInterface):
     def Notify(self, app: 's', rid: 'u', icon: 's', summary: 's', body: 's',
                actions: 'as', hints: 'a{sv}', timeout: 'i') -> 'u':
         return 1
+
+
+class Podcast(ServiceInterface):
+    """Lecteur de podcasts fictif, en pause, comme Sailcast."""
+    def __init__(self):
+        super().__init__("org.mpris.MediaPlayer2.Player")
+        self.status = "Paused"
+
+    @method()
+    def Play(self):
+        self.status = "Playing"
+        print("podcast Play", flush=True)
+
+    @method()
+    def Pause(self):
+        self.status = "Paused"
+        print("podcast Pause", flush=True)
+
+    @method()
+    def PlayPause(self):
+        self.status = "Paused" if self.status == "Playing" else "Playing"
+        print("podcast PlayPause", flush=True)
+
+    @dbus_property(access=PropertyAccess.READ)
+    def PlaybackStatus(self) -> 's':
+        return self.status
 
 
 async def notify(bus, app, summary, body, hints=None):
@@ -101,6 +128,19 @@ async def main():
             interface="org.freedesktop.DBus", member="NameHasOwner",
             signature="s", body=["org.mpris.MediaPlayer2.notivox"]))
         print("lecteur encore présent :", reply.body[0], flush=True)
+    elif steps == "button2":
+        pod = await MessageBus().connect()
+        pod.export("/org/mpris/MediaPlayer2", Podcast())
+        await pod.request_name("org.mpris.MediaPlayer2.podcast")
+        await sig(bus, "/org/notivox", "org.notivox.Control", "Summary", "",
+                  [])
+        await asyncio.sleep(5)
+        # Ce que fait Sailfish : le bouton relance le lecteur de podcasts.
+        await bus.call(Message(destination=pod.unique_name,
+                               path="/org/mpris/MediaPlayer2",
+                               interface="org.mpris.MediaPlayer2.Player",
+                               member="Play"))
+        await asyncio.sleep(3)
     elif steps == "summary-speaker":
         await sig(bus, "/org/notivox", "org.notivox.Control", "Summary", "s",
                   ["speaker"])

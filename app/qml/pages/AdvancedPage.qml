@@ -40,8 +40,8 @@ Page {
             }
             TextSwitch {
                 text: NV.t("Interrompre avec le bouton du casque", "Stop with the headset button")
-                description: NV.t("Pendant une lecture, un appui court sur le bouton lecture/pause l'arrête, résumé compris ; « piste suivante » passe à la notification suivante. Si de la musique joue déjà, le bouton reste au lecteur de musique.",
-                                  "While reading, a short press on the play/pause button stops it, summary included; \"next track\" skips to the next notification. If music is already playing, the button stays with the music player.")
+                description: NV.t("Pendant une lecture, un appui court sur le bouton lecture/pause l'arrête, résumé compris ; si l'appui relance votre lecteur de musique ou de podcasts, Notivox le remet aussitôt en pause.",
+                                  "While reading, a short press on the play/pause button stops it, summary included; if the press restarts your music or podcast player, Notivox pauses it again at once.")
                 checked: NV.get(["headset_button"], true)
                 automaticCheck: false
                 onClicked: NV.setCfg(["headset_button"], !checked)
