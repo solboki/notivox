@@ -665,7 +665,7 @@ SUMMARY_PHRASES = {
     "en": {
         "hello": "Hello.", "evening": "Good evening.",
         "date": "Today is {weekday}, {month} {day}.",
-        "time": "It is {h12} {m:02d} {ampm}.", "time0": "It is {h12} {ampm}.",
+        "time": "It is {h12}:{m:02d} {ampm}.", "time0": "It is {h12} {ampm}.",
         "none": "You have no notifications.",
         "total_1": "You have received one notification, from {apps}.",
         "total_n": "You have received {n} notifications, from {apps}.",
@@ -1896,7 +1896,7 @@ def date_phrase(lang, now=None):
         day = "1er"
     date = sp("date", lang).format(weekday=wd, day=day, month=mo)
     h12 = t.tm_hour % 12 or 12
-    ampm = "a.m." if t.tm_hour < 12 else "p.m."
+    ampm = "AM" if t.tm_hour < 12 else "PM"
     key = "time0" if t.tm_min == 0 else "time"
     hour = sp(key, lang).format(h=t.tm_hour, m=t.tm_min, h12=h12, ampm=ampm)
     return "%s %s %s" % (hello, date, hour)
