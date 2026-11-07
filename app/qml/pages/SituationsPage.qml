@@ -29,7 +29,8 @@ Page {
                     { c: "notivox-ctl toggle", fr: "Inverser", en: "Toggle" },
                     { c: "notivox-ctl pause 60", fr: "Suspendre 60 minutes", en: "Pause for 60 minutes" },
                     { c: "notivox-ctl resume", fr: "Reprendre", en: "Resume" },
-                    { c: "notivox-ctl summary", fr: "Lire le résumé de la Vue Événements", en: "Read the Events view summary" },
+                    { c: "notivox-ctl events", fr: "Résumé de la Vue Événements, dans les écouteurs seulement", en: "Events view summary, headphones only" },
+                    { c: "notivox-ctl events-speakers", fr: "Résumé, sur le haut-parleur s'il n'y a pas d'écouteurs", en: "Summary, on the speaker if no headphones" },
                     { c: "notivox-ctl stop", fr: "Interrompre la lecture", en: "Stop reading" },
                     { c: "notivox-ctl say Bonjour", fr: "Lire un texte", en: "Speak a text" }
                 ]
@@ -73,8 +74,8 @@ Page {
                 wrapMode: Text.Wrap
                 font.pixelSize: Theme.fontSizeExtraSmall
                 color: Theme.secondaryHighlightColor
-                text: NV.t("Les mêmes ordres existent sous forme de signaux D-Bus sur le bus de session, interface org.notivox.Control, chemin /org/notivox : Enable, Disable, Toggle, Resume, Pause (int32, minutes), Say (texte), Summary et Stop. Exemple :",
-                            "The same orders exist as D-Bus signals on the session bus, interface org.notivox.Control, path /org/notivox: Enable, Disable, Toggle, Resume, Pause (int32, minutes), Say (text), Summary and Stop. Example:")
+                text: NV.t("Les mêmes ordres existent sous forme de signaux D-Bus sur le bus de session, interface org.notivox.Control, chemin /org/notivox : Enable, Disable, Toggle, Resume, Pause (int32, minutes), Say (texte), Summary (avec string:speaker pour le haut-parleur) et Stop. Exemple :",
+                            "The same orders exist as D-Bus signals on the session bus, interface org.notivox.Control, path /org/notivox: Enable, Disable, Toggle, Resume, Pause (int32, minutes), Say (text), Summary (string:speaker for the speaker) and Stop. Example:")
             }
             Label {
                 x: Theme.horizontalPageMargin

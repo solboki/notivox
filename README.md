@@ -16,16 +16,16 @@ By default nothing is ever spoken on the phone's loudspeaker. Notivox only talks
 
 Each message is read by a voice in its own language when one is installed: a message in English is read by an English voice, a message in French by a French voice. Voices are downloaded from the settings page, from the public Piper voice repository, in more than fifty languages. For a language without a Piper voice, the much more robotic but very wide eSpeak NG voice can step in.
 
-A spoken summary reads the notifications still shown in the Events view: first how many each app has, then their content. It can be started from the settings, from Situations (`notivox-ctl summary`), or automatically when headphones connect. Notifications can optionally be cleared once read, and you choose which families are included (messages, missed calls, emails, calendar, system, other apps).
+A spoken summary reads the notifications still shown in the Events view: first how many each app has, then their content. It gives the date and time, the number of notifications per app, then their content. It can be started from the settings, from Situations (`notivox-ctl events`), or automatically when headphones connect. Notifications can optionally be cleared once read, and for each family of notifications (messages, missed calls, emails, calendar, system, other apps), and if needed each app, you choose whether it is skipped, only counted, or read in full.
 
 Reading can be controlled in four ways: the main switch, a timed pause (15 minutes, one hour, two hours, until tomorrow morning), quiet hours by day and time, and the [Situations](https://forum.sailfishos.org/t/situations-application-feedback/16333) app through a command or a D-Bus signal.
 
 ## Installing
 
-Copy `notivox-1.2.0-1.aarch64.rpm` to the phone, then in a terminal:
+Copy `notivox-1.3.0-1.aarch64.rpm` to the phone, then in a terminal:
 
 ```
-devel-su pkcon install-local notivox-1.2.0-1.aarch64.rpm
+devel-su pkcon install-local notivox-1.3.0-1.aarch64.rpm
 ```
 
 The package is for 64-bit ARM phones (aarch64) and weighs about 21 MB, most of it being the Piper engine.
@@ -44,7 +44,8 @@ notivox-ctl pause 60        # pause for 60 minutes
 notivox-ctl resume
 notivox-ctl status
 notivox-ctl say "Some text"
-notivox-ctl summary         # read the Events view summary
+notivox-ctl events          # read the Events view summary (headphones only)
+notivox-ctl events-speakers # same, on the speaker if no headphones
 notivox-ctl stop            # stop reading
 ```
 

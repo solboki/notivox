@@ -1,5 +1,5 @@
 Name:       notivox
-Version:    1.2.0
+Version:    1.3.0
 Release:    1
 Summary:    Reads notifications and incoming calls aloud in your headphones
 License:    GPL-3.0-or-later
@@ -105,6 +105,13 @@ systemctl-user daemon-reload >/dev/null 2>&1 || :
 %{_datadir}/translations/settings-notivox*.qm
 
 %changelog
+* Sat Nov 07 2026 Boris Solodki <solboki@solodki.fr> - 1.3.0-1
+- New summary form: greeting, date and time, total, count per app,
+  numbered messages separated by a beep, closing sentence.
+- For each family, and optionally each app: do not announce, announce
+  the count, or read everything.
+- "notivox-ctl events" (headphones only) and "notivox-ctl events-speakers"
+  (speaker when no headphones).
 * Sat Nov 07 2026 Boris Solodki <solboki@solodki.fr> - 1.2.0-1
 - Spoken summary of the Events view: count per app, then full reading.
   Started from the settings, from Situations, or when headphones connect.

@@ -79,6 +79,24 @@ Page {
                                    "When automatic, the language is guessed for each message.")
             }
 
+            ComboBox {
+                property var modes: ["family", "none", "count", "full"]
+                property string cur: {
+                    var a = NV.get(["apps"], {})[page.appName]
+                    return a && a.summary ? a.summary : "family"
+                }
+                label: NV.t("Dans le résumé", "In the summary")
+                currentIndex: Math.max(0, modes.indexOf(cur))
+                menu: ContextMenu {
+                    MenuItem { text: NV.t("Comme sa famille", "Like its family"); onClicked: page.setApp("summary", "family") }
+                    MenuItem { text: NV.t("Ne pas annoncer", "Do not announce"); onClicked: page.setApp("summary", "none") }
+                    MenuItem { text: NV.t("Annoncer le nombre", "Announce the count"); onClicked: page.setApp("summary", "count") }
+                    MenuItem { text: NV.t("Tout lire", "Read everything"); onClicked: page.setApp("summary", "full") }
+                }
+                description: NV.t("Le résumé de la Vue Événements traite chaque application selon sa famille (messages, courriels…), sauf réglage contraire ici.",
+                                  "The Events view summary handles each app according to its family (messages, emails…), unless set otherwise here.")
+            }
+
             SectionHeader {
                 text: NV.t("Dernière notification", "Last notification")
                 visible: !!NV.seen[page.appName]

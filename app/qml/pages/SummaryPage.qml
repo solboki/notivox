@@ -19,11 +19,17 @@ Page {
         { key: "other", fr: "Autres applications", en: "Other apps",
           dfr: "Notifications sans famille reconnue", den: "Notifications without a known family" }
     ]
-    readonly property var defaults: ({ messages: true, calls: true, email: true,
-                                       calendar: true, system: false, other: true })
+    readonly property var defaults: ({ messages: "full", calls: "full", email: "count",
+                                       calendar: "full", system: "none", other: "count" })
+    readonly property var modes: ["none", "count", "full"]
 
-    function typeOn(key) {
-        return NV.get(["summary", "types", key], page.defaults[key])
+    function modeOf(key) {
+        return NV.get(["summary", "modes", key], page.defaults[key])
+    }
+    function modeName(m) {
+        return m === "none" ? NV.t("Ne pas annoncer", "Do not announce")
+             : m === "count" ? NV.t("Annoncer le nombre", "Announce the count")
+             : NV.t("Tout lire", "Read everything")
     }
 
     SilicaFlickable {
@@ -54,8 +60,8 @@ Page {
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.highlightColor
                 bottomPadding: Theme.paddingMedium
-                text: NV.t("Le résumé lit les notifications présentes dans la Vue Événements : d'abord leur nombre pour chaque application, puis leur contenu. Il se lance depuis le menu du haut de cette page, depuis Situations, ou à la connexion des écouteurs.",
-                           "The summary reads the notifications shown in the Events view: first how many each app has, then their content. Start it from the top menu of this page, from Situations, or when headphones connect.")
+                text: NV.t("Le résumé donne la date et l'heure, puis, pour chaque application de la Vue Événements, le nombre de ses notifications et, selon le réglage de sa famille, leur contenu. Il se lance depuis cette page, depuis Situations, ou à la connexion des écouteurs.",
+                           "The summary gives the date and time, then, for each app in the Events view, how many notifications it has and, depending on its family's setting, their content. Start it from this page, from Situations, or when headphones connect.")
             }
 
             Button {
@@ -76,20 +82,19 @@ Page {
                 onClicked: NV.setCfg(["summary", "on_headset"], !checked)
             }
             TextSwitch {
-                text: NV.t("Lire le contenu après le décompte", "Read the content after the count")
-                description: NV.t("Sinon, seul le nombre de notifications par application est annoncé.",
-                                  "Otherwise only the number of notifications per app is announced.")
-                checked: NV.get(["summary", "detail"], true)
-                automaticCheck: false
-                onClicked: NV.setCfg(["summary", "detail"], !checked)
-            }
-            TextSwitch {
                 text: NV.t("Effacer les notifications lues", "Clear notifications once read")
                 description: NV.t("Chaque notification lue en entier disparaît de la Vue Événements. Une lecture interrompue, par un appel ou par vous, n'efface rien.",
                                   "Each notification read in full is removed from the Events view. An interrupted reading, by a call or by you, clears nothing.")
                 checked: NV.get(["summary", "clear_after"], false)
                 automaticCheck: false
                 onClicked: NV.setCfg(["summary", "clear_after"], !checked)
+            }
+            TextSwitch {
+                text: NV.t("Bip entre deux notifications", "Beep between notifications")
+                description: NV.t("Sinon, une courte pause.", "Otherwise, a short pause.")
+                checked: NV.get(["summary", "beep"], true)
+                automaticCheck: false
+                onClicked: NV.setCfg(["summary", "beep"], !checked)
             }
             Slider {
                 width: parent.width
@@ -100,16 +105,25 @@ Page {
                 onReleased: NV.setCfg(["summary", "max_items"], value)
             }
 
-            SectionHeader { text: NV.t("Notifications prises en compte", "Notifications included") }
+            SectionHeader { text: NV.t("Traitement de chaque famille", "Handling of each family") }
 
             Repeater {
                 model: page.families
-                TextSwitch {
-                    text: NV.t(modelData.fr, modelData.en)
+                ComboBox {
+                    id: fam
+                    property string key: modelData.key
+                    label: NV.t(modelData.fr, modelData.en)
                     description: NV.t(modelData.dfr, modelData.den)
-                    checked: page.typeOn(modelData.key)
-                    automaticCheck: false
-                    onClicked: NV.setCfg(["summary", "types", modelData.key], !checked)
+                    currentIndex: page.modes.indexOf(page.modeOf(key))
+                    menu: ContextMenu {
+                        Repeater {
+                            model: page.modes
+                            MenuItem {
+                                text: page.modeName(modelData)
+                                onClicked: NV.setCfg(["summary", "modes", fam.key], modelData)
+                            }
+                        }
+                    }
                 }
             }
 
@@ -120,8 +134,8 @@ Page {
                 wrapMode: Text.Wrap
                 font.pixelSize: Theme.fontSizeExtraSmall
                 color: Theme.secondaryHighlightColor
-                text: NV.t("Pour une application réglée sur « titre seulement » dans la page Applications, le résumé n'annonce que l'expéditeur. Le bouton de cette page lit le résumé même sans écouteurs ; la commande de Situations, elle, respecte les règles habituelles.",
-                           "For an app set to \"title only\" in the Apps page, the summary only announces the sender. The button on this page reads the summary even without headphones; the Situations command follows the usual rules.")
+                text: NV.t("Chaque application peut aussi avoir son propre mode, dans sa page de la liste Applications. Pour une application réglée sur « titre seulement », le résumé n'annonce que l'expéditeur. Le bouton de cette page lit le résumé même sans écouteurs ; la commande de Situations, elle, respecte les règles habituelles.",
+                           "Each app can also have its own mode, in its page of the Apps list. For an app set to \"title only\", the summary only announces the sender. The button on this page reads the summary even without headphones; the Situations command follows the usual rules.")
             }
         }
         VerticalScrollDecorator { }

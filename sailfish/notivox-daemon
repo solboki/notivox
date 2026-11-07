@@ -30,7 +30,7 @@ import time
 import wave
 from array import array
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 
 HOME = os.path.expanduser("~")
 CONF_DIR = os.environ.get("NOTIVOX_CONF_DIR",
@@ -120,9 +120,13 @@ DEFAULT_CONFIG = {
         "clear_after": False,
         # Après le décompte par application, lire chaque notification
         "detail": True,
-        # Familles de notifications prises en compte
-        "types": {"messages": True, "calls": True, "email": True,
-                  "calendar": True, "system": False, "other": True},
+        # Traitement de chaque famille : "none" (ne pas annoncer), "count"
+        # (annoncer le nombre) ou "full" (tout lire). Une application peut
+        # avoir son propre mode (réglage "summary" dans "apps").
+        "modes": {"messages": "full", "calls": "full", "email": "count",
+                  "calendar": "full", "system": "none", "other": "count"},
+        # Séparer les notifications lues par un bip (sinon un silence)
+        "beep": True,
         # Nombre maximal de notifications lues en détail
         "max_items": 30,
     },
@@ -641,11 +645,93 @@ PHRASES = {
 
 
 # Phrases du résumé vocal ; les autres langues utilisent l'anglais.
-SUMMARY_PHRASES = {'fr': {'sum_none': 'Aucune notification.', 'sum_total_1': 'Une notification.', 'sum_total_n': '{} notifications.', 'sum_messages_1': 'un message', 'sum_messages_n': '{} messages', 'sum_calls_1': 'un appel manqué', 'sum_calls_n': '{} appels manqués', 'sum_email_1': 'un courriel', 'sum_email_n': '{} courriels', 'sum_other_1': 'une notification', 'sum_other_n': '{} notifications', 'sum_detail': 'Détail.', 'sum_end': 'Fin du résumé.', 'sum_more': 'Et {} autres notifications.'},
-    'en': {'sum_none': 'No notifications.', 'sum_total_1': 'One notification.', 'sum_total_n': '{} notifications.', 'sum_messages_1': 'one message', 'sum_messages_n': '{} messages', 'sum_calls_1': 'one missed call', 'sum_calls_n': '{} missed calls', 'sum_email_1': 'one email', 'sum_email_n': '{} emails', 'sum_other_1': 'one notification', 'sum_other_n': '{} notifications', 'sum_detail': 'Details.', 'sum_end': 'End of summary.', 'sum_more': 'And {} more notifications.'},
-    'de': {'sum_none': 'Keine Benachrichtigungen.', 'sum_total_1': 'Eine Benachrichtigung.', 'sum_total_n': '{} Benachrichtigungen.', 'sum_messages_1': 'eine Nachricht', 'sum_messages_n': '{} Nachrichten', 'sum_calls_1': 'ein verpasster Anruf', 'sum_calls_n': '{} verpasste Anrufe', 'sum_email_1': 'eine E-Mail', 'sum_email_n': '{} E-Mails', 'sum_other_1': 'eine Benachrichtigung', 'sum_other_n': '{} Benachrichtigungen', 'sum_detail': 'Im Einzelnen.', 'sum_end': 'Ende der Zusammenfassung.', 'sum_more': 'Und {} weitere Benachrichtigungen.'},
-    'es': {'sum_none': 'Ninguna notificación.', 'sum_total_1': 'Una notificación.', 'sum_total_n': '{} notificaciones.', 'sum_messages_1': 'un mensaje', 'sum_messages_n': '{} mensajes', 'sum_calls_1': 'una llamada perdida', 'sum_calls_n': '{} llamadas perdidas', 'sum_email_1': 'un correo', 'sum_email_n': '{} correos', 'sum_other_1': 'una notificación', 'sum_other_n': '{} notificaciones', 'sum_detail': 'Detalle.', 'sum_end': 'Fin del resumen.', 'sum_more': 'Y {} notificaciones más.'},
-    'it': {'sum_none': 'Nessuna notifica.', 'sum_total_1': 'Una notifica.', 'sum_total_n': '{} notifiche.', 'sum_messages_1': 'un messaggio', 'sum_messages_n': '{} messaggi', 'sum_calls_1': 'una chiamata persa', 'sum_calls_n': '{} chiamate perse', 'sum_email_1': 'una email', 'sum_email_n': '{} email', 'sum_other_1': 'una notifica', 'sum_other_n': '{} notifiche', 'sum_detail': 'Dettaglio.', 'sum_end': 'Fine del riepilogo.', 'sum_more': 'E altre {} notifiche.'}}
+SUMMARY_PHRASES = {
+    "fr": {
+        "hello": "Bonjour.", "evening": "Bonsoir.",
+        "date": "Nous sommes le {weekday} {day} {month}.",
+        "time": "Il est {h} heures {m}.", "time0": "Il est {h} heures.",
+        "none": "Vous n'avez aucune notification.",
+        "total_1": "Vous avez reçu une notification, venant {de} {apps}.",
+        "total_n": "Vous avez reçu {n} notifications, venant {de} {apps}.",
+        "group_1": "Vous avez une notification {de} {app}.",
+        "group_n": "Vous avez {n} notifications {de} {app}.",
+        "item": "{i} : {text}",
+        "more": "Et {n} autres notifications.",
+        "and": "et", "end": "Fin de vos notifications. À bientôt.",
+        "weekdays": "lundi mardi mercredi jeudi vendredi samedi dimanche",
+        "months": "janvier février mars avril mai juin juillet août "
+                  "septembre octobre novembre décembre",
+    },
+    "en": {
+        "hello": "Hello.", "evening": "Good evening.",
+        "date": "Today is {weekday}, {month} {day}.",
+        "time": "It is {h12} {m:02d} {ampm}.", "time0": "It is {h12} {ampm}.",
+        "none": "You have no notifications.",
+        "total_1": "You have received one notification, from {apps}.",
+        "total_n": "You have received {n} notifications, from {apps}.",
+        "group_1": "You have one {app} notification.",
+        "group_n": "You have {n} {app} notifications.",
+        "item": "{i}: {text}",
+        "more": "And {n} more notifications.",
+        "and": "and", "end": "End of your notifications. See you soon.",
+        "weekdays": "Monday Tuesday Wednesday Thursday Friday Saturday "
+                    "Sunday",
+        "months": "January February March April May June July August "
+                  "September October November December",
+    },
+    "de": {
+        "hello": "Guten Tag.", "evening": "Guten Abend.",
+        "date": "Heute ist {weekday}, der {day}. {month}.",
+        "time": "Es ist {h} Uhr {m}.", "time0": "Es ist {h} Uhr.",
+        "none": "Sie haben keine Benachrichtigungen.",
+        "total_1": "Sie haben eine Benachrichtigung erhalten, von {apps}.",
+        "total_n": "Sie haben {n} Benachrichtigungen erhalten, von {apps}.",
+        "group_1": "Sie haben eine Benachrichtigung von {app}.",
+        "group_n": "Sie haben {n} Benachrichtigungen von {app}.",
+        "item": "{i}: {text}",
+        "more": "Und {n} weitere Benachrichtigungen.",
+        "and": "und", "end": "Ende Ihrer Benachrichtigungen. Bis bald.",
+        "weekdays": "Montag Dienstag Mittwoch Donnerstag Freitag Samstag "
+                    "Sonntag",
+        "months": "Januar Februar März April Mai Juni Juli August "
+                  "September Oktober November Dezember",
+    },
+    "es": {
+        "hello": "Hola.", "evening": "Buenas tardes.",
+        "date": "Hoy es {weekday} {day} de {month}.",
+        "time": "Son las {h} y {m}.", "time0": "Son las {h}.",
+        "none": "No tiene ninguna notificación.",
+        "total_1": "Ha recibido una notificación, de {apps}.",
+        "total_n": "Ha recibido {n} notificaciones, de {apps}.",
+        "group_1": "Tiene una notificación de {app}.",
+        "group_n": "Tiene {n} notificaciones de {app}.",
+        "item": "{i}: {text}",
+        "more": "Y {n} notificaciones más.",
+        "and": "y", "end": "Fin de sus notificaciones. Hasta pronto.",
+        "weekdays": "lunes martes miércoles jueves viernes sábado domingo",
+        "months": "enero febrero marzo abril mayo junio julio agosto "
+                  "septiembre octubre noviembre diciembre",
+    },
+    "it": {
+        "hello": "Buongiorno.", "evening": "Buonasera.",
+        "date": "Oggi è {weekday} {day} {month}.",
+        "time": "Sono le {h} e {m}.", "time0": "Sono le {h}.",
+        "none": "Non ha nessuna notifica.",
+        "total_1": "Ha ricevuto una notifica, da {apps}.",
+        "total_n": "Ha ricevuto {n} notifiche, da {apps}.",
+        "group_1": "Ha una notifica di {app}.",
+        "group_n": "Ha {n} notifiche di {app}.",
+        "item": "{i}: {text}",
+        "more": "E altre {n} notifiche.",
+        "and": "e", "end": "Fine delle sue notifiche. A presto.",
+        "weekdays": "lunedì martedì mercoledì giovedì venerdì sabato "
+                    "domenica",
+        "months": "gennaio febbraio marzo aprile maggio giugno luglio "
+                  "agosto settembre ottobre novembre dicembre",
+    },
+}
+SUMMARY_PHRASES = {lang: {"s_" + k: v for k, v in p.items()}
+                   for lang, p in SUMMARY_PHRASES.items()}
 for _l, _p in SUMMARY_PHRASES.items():
     PHRASES.setdefault(_l, {}).update(_p)
 
@@ -1022,7 +1108,11 @@ class Speaker(threading.Thread):
 
     def say(self, text, lang=None, prio=5, props_key="notification_props",
             tag=None, force=False, voice=None, done=None):
-        """done : fonction appelée si l'annonce a été jouée jusqu'au bout."""
+        """done : fonction appelée si l'annonce a été jouée jusqu'au bout.
+        force : True pour parler quoi qu'il arrive, "speaker" pour accepter
+        le haut-parleur faute d'écouteurs. text peut être un tuple
+        ("wav", chemin) pour jouer un son déjà prêt (bip, silence, phrase
+        préparée à l'avance)."""
         with self.lock:
             self.seq += 1
             # Au-delà de cinq notifications en attente, on oublie les plus
@@ -1076,7 +1166,7 @@ class Speaker(threading.Thread):
                 self.last_error = str(exc)
                 log("échec de la lecture :", exc)
 
-    def render(self, text, lang, want=None, cache=False):
+    def render(self, text, lang, want=None, cache=False, path=None):
         """Fabrique le fichier WAV d'un texte et renvoie (chemin, voix).
 
         Avec cache, le fichier est gardé : les annonces d'appel sont ainsi
@@ -1101,6 +1191,8 @@ class Speaker(threading.Thread):
             if os.path.exists(out):
                 return out, voice
             tmp = out + ".tmp.wav"
+        elif path:
+            tmp = out = path
         else:
             with self.lock:
                 self.seq += 1
@@ -1127,11 +1219,17 @@ class Speaker(threading.Thread):
         is_call = props_key == "call_props"
         if is_call:
             forget_route()
-        if not force and not may_speak(call=is_call):
-            dbg("lecture annulée au dernier moment :", text[:60])
+        label = text[1] if isinstance(text, tuple) else text
+        if force is not True and not may_speak(
+                call=is_call, speaker_ok=force == "speaker"):
+            dbg("lecture annulée au dernier moment :", label[:60])
             return False
         lang = lang or CFG.get("language", "fr")
-        out, voice = self.render(text, lang, want, cache=is_call)
+        if isinstance(text, tuple):
+            out, voice = text[1], (text[2] if len(text) > 2 else "son")
+            text = text[3] if len(text) > 3 else os.path.basename(out)
+        else:
+            out, voice = self.render(text, lang, want, cache=is_call)
         props = parse_props(CFG.get("audio", {}).get(props_key, ""))
         props.append(("media.title", "Notivox"))
         kind, device = audio_route()
@@ -1208,8 +1306,9 @@ def in_call():
                    for c in CALLS.values())
 
 
-def blocked_reason(call=False):
-    """Renvoie la raison pour laquelle il ne faut pas parler, ou ""."""
+def blocked_reason(call=False, speaker_ok=False):
+    """Renvoie la raison pour laquelle il ne faut pas parler, ou "".
+    speaker_ok : le haut-parleur est permis faute d'écouteurs."""
     if not STATE.get("enabled", True):
         return "désactivé"
     if STATE.get("pause_until", 0) > time.time():
@@ -1221,18 +1320,19 @@ def blocked_reason(call=False):
         return "appel en cours"
     if CFG.get("require_headphones", True):
         out = audio_output()
-        if out == "speaker" and not (
+        if out == "speaker" and not speaker_ok and not (
                 call and CFG.get("calls", {}).get("speaker_fallback")):
             return "pas d'écouteurs"
-        if out == "unknown" and not CFG.get("speak_if_output_unknown"):
+        if out == "unknown" and not speaker_ok and \
+                not CFG.get("speak_if_output_unknown"):
             return "sortie audio inconnue"
     if CFG.get("respect_silent_profile") and silent_profile():
         return "profil silencieux"
     return ""
 
 
-def may_speak(call=False):
-    return blocked_reason(call) == ""
+def may_speak(call=False, speaker_ok=False):
+    return blocked_reason(call, speaker_ok) == ""
 
 
 # ---------------------------------------------------------------------------
@@ -1362,10 +1462,14 @@ def on_control(member, vals):
             SPEAKER.say(text, lang=lang, prio=1, force=True)
         return
     elif member == "Summary":
-        # « force » (bouton des réglages) : lu même sans écouteurs.
+        # « force » (bouton des réglages) : lu quoi qu'il arrive ;
+        # « speaker » (notivox-ctl events-speakers) : sur le haut-parleur
+        # s'il n'y a pas d'écouteurs.
+        arg = str(vals[0]) if vals else ""
         threading.Thread(target=speak_summary, daemon=True, kwargs={
             "manual": True,
-            "force": bool(vals) and str(vals[0]) == "force"}).start()
+            "force": True if arg == "force" else
+            ("speaker" if arg == "speaker" else False)}).start()
         return
     elif member == "Stop":
         SPEAKER.cancel("summary")
@@ -1750,76 +1854,160 @@ def read_events():
         db.close()
 
 
-def plural(lang, kind, n):
-    return phrase("sum_%s_%s" % (kind, "1" if n == 1 else "n"),
-                  lang).format(n)
+SUMMARY_MODES = ("none", "count", "full")
 
 
-def build_summary(events, lang):
-    """Prépare le résumé : liste de (texte, langue, ids effaçables après
-    lecture). Décompte par application, puis lecture complète."""
+def summary_mode(app, family):
+    """Mode d'une application dans le résumé : son réglage propre, sinon
+    celui de sa famille."""
     sc = CFG.get("summary", {})
-    types = sc.get("types", {})
-    kept = [e for e in events if types.get(e["type"], True)]
-    if not kept:
-        return []
-    groups = {}
-    for e in kept:
-        groups.setdefault(e["app"], []).append(e)
-    # Les applications les plus récemment actives d'abord, comme dans la
-    # Vue Événements ; dans chaque application, ordre chronologique.
-    order = sorted(groups, key=lambda a: -max(e["id"] for e in groups[a]))
-    parts = []
-    n = len(kept)
-    head = [phrase("sum_total_1" if n == 1 else "sum_total_n",
-                   lang).format(n)]
-    for app in order:
-        g = groups[app]
-        kinds = {}
-        for e in g:
-            k = e["type"] if e["type"] in ("messages", "calls", "email") \
-                else "other"
-            kinds[k] = kinds.get(k, 0) + 1
-        counts = ", ".join(plural(lang, k, c) for k, c in kinds.items())
-        head.append("%s, %s." % (app, counts))
-    parts.append((" ".join(head), lang, []))
-    if not sc.get("detail", True):
-        return parts
-    parts.append((phrase("sum_detail", lang), lang, []))
+    own = CFG.get("apps", {}).get(app, {}).get("summary")
+    if own in SUMMARY_MODES:
+        return own
+    mode = sc.get("modes", {}).get(family)
+    return mode if mode in SUMMARY_MODES else "count"
+
+
+def sp(key, lang):
+    return phrase("s_" + key, lang)
+
+
+def join_names(names, lang):
+    if len(names) <= 1:
+        return "".join(names)
+    return "%s %s %s" % (", ".join(names[:-1]), sp("and", lang), names[-1])
+
+
+def de_app(app, lang):
+    """« de Facebook », « d'E-mail » : élision française devant une
+    voyelle."""
+    if lang == "fr" and app[:1].lower() in "aeéèêiîoôuyh":
+        return "d'", app
+    return "de ", app
+
+
+def date_phrase(lang, now=None):
+    t = time.localtime(now or time.time())
+    hello = sp("evening" if t.tm_hour >= 18 else "hello", lang)
+    wd = sp("weekdays", lang).split()[t.tm_wday]
+    mo = sp("months", lang).split()[t.tm_mon - 1]
+    day = t.tm_mday
+    if lang == "fr" and day == 1:
+        day = "1er"
+    date = sp("date", lang).format(weekday=wd, day=day, month=mo)
+    h12 = t.tm_hour % 12 or 12
+    ampm = "a.m." if t.tm_hour < 12 else "p.m."
+    key = "time0" if t.tm_min == 0 else "time"
+    hour = sp(key, lang).format(h=t.tm_hour, m=t.tm_min, h12=h12, ampm=ampm)
+    return "%s %s %s" % (hello, date, hour)
+
+
+def build_summary(events, lang, now=None):
+    """Prépare le résumé, sous forme d'une liste d'éléments :
+      ("say", texte, langue, ids effaçables après lecture)
+      ("pause",) courte pause ; ("sep",) bip ou pause entre deux messages.
+
+    Forme : salutation, date et heure ; total et applications ; pour chaque
+    application, son nombre de notifications, puis, en mode « tout lire »,
+    chacune numérotée ; formule de fin."""
+    sc = CFG.get("summary", {})
+    groups, order = {}, []
+    for e in events:
+        mode = summary_mode(e["app"], e["type"])
+        if mode == "none":
+            continue
+        if e["app"] not in groups:
+            groups[e["app"]] = {"mode": mode, "items": []}
+        groups[e["app"]]["items"].append(e)
+    # Applications les plus récemment actives d'abord, comme dans la Vue
+    # Événements ; dans chaque application, ordre chronologique.
+    order = sorted(groups, key=lambda a: -max(e["id"] for e in
+                                              groups[a]["items"]))
+    out = [("say", date_phrase(lang, now), lang, []), ("pause",)]
+    total = sum(len(groups[a]["items"]) for a in order)
+    if not total:
+        out.append(("say", sp("none", lang) + " " +
+                    sp("end", lang).split(".")[-2].strip() + ".", lang, []))
+        return out
+    out.append(("say", sp("total_1" if total == 1 else "total_n", lang)
+                .format(n=total, apps=join_names(order, lang),
+                        de=de_app(order[0], lang)[0].strip())
+                .replace("d' ", "d'"), lang, []))
+    out.append(("pause",))
     limit = max(1, int(sc.get("max_items", 30) or 30))
     maxc = int(CFG.get("max_chars", 300) or 300)
     told = 0
     for app in order:
+        g = groups[app]["items"]
+        de, name = de_app(app, lang)
+        out.append(("say", sp("group_1" if len(g) == 1 else "group_n", lang)
+                    .format(n=len(g), app=name, de=de.strip())
+                    .replace("d' ", "d'"), lang, []))
+        out.append(("pause",))
+        if groups[app]["mode"] != "full":
+            continue
         content = app_setting(app).get("content", "full") \
             if app in CFG.get("apps", {}) else "full"
-        if content == "app":
-            continue
-        parts.append((app + ".", lang, []))
-        last_sender = None
-        for e in groups[app]:
+        for i, e in enumerate(g, 1):
             if told >= limit:
                 break
             sender, body = e["summary"], e["body"]
-            if content == "title":
+            if content == "title" or content == "app":
                 body = ""
-            if sender and sender == last_sender and body:
-                text = body
-            else:
-                text = ". ".join(x for x in (sender, body) if x)
-            last_sender = sender
+            if sender.strip().lower() == app.strip().lower():
+                sender = ""
+            text = ". ".join(x for x in (sender, body) if x) or app
             if len(text) > maxc:
                 text = text[:maxc].rsplit(" ", 1)[0] + "…"
+            if len(g) > 1:
+                text = sp("item", lang).format(i=i, text=text)
             item_lang = lang
             if CFG.get("detect_language", True):
                 item_lang = detect_language(e["summary"] + " " + e["body"],
                                             candidate_langs(), lang)
-            parts.append((text, item_lang,
-                          [e["id"]] if e["removable"] else []))
+            if i > 1:
+                out.append(("sep",))
+            out.append(("say", text, item_lang,
+                        [e["id"]] if e["removable"] else []))
             told += 1
-    if told < n and told >= limit:
-        parts.append((phrase("sum_more", lang).format(n - told), lang, []))
-    parts.append((phrase("sum_end", lang), lang, []))
-    return parts
+        out.append(("pause",))
+    full_total = sum(len(groups[a]["items"]) for a in order
+                     if groups[a]["mode"] == "full")
+    if told < full_total:
+        out.append(("say", sp("more", lang).format(n=full_total - told),
+                    lang, []))
+        out.append(("pause",))
+    out.append(("say", sp("end", lang), lang, []))
+    return out
+
+
+def sound_file(kind):
+    """Fichier WAV d'une courte pause ou d'un bip doux, créé au besoin."""
+    path = os.path.join(CACHE_DIR, "%s.wav" % kind)
+    if os.path.exists(path):
+        return path
+    import math
+    rate = 22050
+    frames = array("h")
+    if kind == "pause":
+        frames.extend([0] * int(rate * 0.7))
+    else:
+        n = int(rate * 0.12)
+        for i in range(n):
+            env = min(1.0, i / 300.0, (n - i) / 600.0)
+            frames.append(int(6000 * env * math.sin(2 * math.pi * 880 * i /
+                                                     rate)))
+        frames.extend([0] * int(rate * 0.25))
+        frames = array("h", [0] * int(rate * 0.2)) + frames
+    if sys.byteorder == "big":
+        frames.byteswap()
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(frames.tobytes())
+    return path
 
 
 def close_notifications(ids):
@@ -1836,41 +2024,64 @@ def close_notifications(ids):
 
 
 def speak_summary(manual=False, force=False):
-    """Lit le résumé de la Vue Événements. manual : demandé explicitement
-    (commande, bouton) ; il est alors lu même sans nouveauté. force : lu
-    même sans écouteurs, en pause ou en plage de silence."""
+    """Lit le résumé de la Vue Événements.
+
+    manual : demandé explicitement (commande, bouton) ; il est alors lu
+    même sans nouveauté. force : True pour le lire quoi qu'il arrive,
+    "speaker" pour accepter le haut-parleur faute d'écouteurs.
+
+    Chaque phrase est fabriquée puis aussitôt mise dans la file de
+    lecture : la voix commence à parler pendant que la suite se prépare."""
     lang = CFG.get("language", "fr")
+    if force is not True and not may_speak(speaker_ok=force == "speaker"):
+        dbg("résumé non lu :", blocked_reason(speaker_ok=force ==
+                                              "speaker"))
+        return
     try:
         events = read_events()
     except Exception as exc:
         log("résumé impossible :", exc)
-        if manual:
-            SPEAKER.say(phrase("sum_none", lang), lang=lang, prio=3,
-                        tag="summary", force=force)
-        return
+        events = []
     parts = build_summary(events, lang)
-    ids = sorted(i for _t, _l, x in parts for i in x)
     if not manual:
-        if not parts:
+        if not any(p[0] == "say" and p[3] for p in parts) and \
+                len(parts) <= 3:
             dbg("résumé automatique : rien à lire")
             return
+        shown = sorted(e["id"] for e in events)
         # Même liste lue il y a moins de 30 minutes : on ne la répète pas.
-        if _last_auto["ids"] == ids and time.time() - _last_auto["time"] \
-                < 1800:
+        if _last_auto["ids"] == shown and \
+                time.time() - _last_auto["time"] < 1800:
             dbg("résumé automatique : rien de nouveau depuis le dernier")
             return
-        _last_auto["ids"], _last_auto["time"] = ids, time.time()
-    if not parts:
-        parts = [(phrase("sum_none", lang), lang, [])]
-    clear = CFG.get("summary", {}).get("clear_after", False)
-    log("résumé : %d notifications, %d annonces" % (len(events), len(parts)))
-    for text, plang, pids in parts:
+        _last_auto["ids"], _last_auto["time"] = shown, time.time()
+    sc = CFG.get("summary", {})
+    clear = sc.get("clear_after", False)
+    beep = sc.get("beep", True)
+    d = os.path.join(CACHE_DIR, "summary")
+    os.makedirs(d, exist_ok=True)
+    log("résumé : %d notifications, %d éléments" % (len(events),
+                                                     len(parts)))
+    SPEAKER.cancel("summary")
+    for n, p in enumerate(parts):
+        if p[0] in ("pause", "sep"):
+            kind = "beep" if p[0] == "sep" and beep else "pause"
+            SPEAKER.say(("wav", sound_file(kind), "son", kind), prio=3,
+                        tag="summary", force=force)
+            continue
+        _k, text, plang, pids = p
+        try:
+            path = os.path.join(d, "%03d.wav" % n)
+            wav, voice = SPEAKER.render(text, plang, path=path)
+        except Exception as exc:
+            log("phrase du résumé non préparée :", exc)
+            continue
         done = None
         if clear and pids:
             done = (lambda x=tuple(pids): close_notifications(x))
         # Priorité 3 : après un appel, avant les nouvelles notifications.
-        SPEAKER.say(text, lang=plang, prio=3, tag="summary", force=force,
-                    done=done)
+        SPEAKER.say(("wav", wav, voice or "espeak", text), lang=plang,
+                    prio=3, tag="summary", force=force, done=done)
 
 
 def headset_watch():
@@ -1961,6 +2172,13 @@ def migrate(cfg):
     if calls.get("first_delay") == 1.5:
         calls["first_delay"] = 0
         changed = True
+    sm = cfg.get("summary", {})
+    if isinstance(sm.get("types"), dict):
+        modes = sm.setdefault("modes", dict(DEFAULT_CONFIG["summary"]["modes"]))
+        for fam, on in sm.pop("types").items():
+            if not on:
+                modes[fam] = "none"
+        changed = True
     return changed
 
 
@@ -2005,16 +2223,22 @@ def main():
             return
         print("%d notifications dans la Vue Événements :" % len(events))
         for e in events:
-            print("  [%d] %s | %s | %s : %s%s" % (
-                e["id"], e["type"], e["app"], e["category"] or "-",
+            print("  [%d] %s (%s) | %s | %s : %s%s" % (
+                e["id"], e["type"], summary_mode(e["app"], e["type"]),
+                e["app"], e["category"] or "-",
                 (e["summary"] + " / " + e["body"])[:70],
                 "" if e["removable"] else " (non effaçable)"))
         print("\nRésumé qui serait lu :")
-        for text, lang, ids in build_summary(events, CFG.get("language",
-                                                             "fr")):
-            print("  [%s]%s %s" % (lang, " (efface %s)" % ids if ids and
-                                   CFG.get("summary", {}).get("clear_after")
-                                   else "", text))
+        beep = CFG.get("summary", {}).get("beep", True)
+        for p in build_summary(events, CFG.get("language", "fr")):
+            if p[0] == "pause":
+                print("  (courte pause)")
+            elif p[0] == "sep":
+                print("  (bip)" if beep else "  (courte pause)")
+            else:
+                print("  [%s]%s %s" % (p[2], " (efface %s)" % p[3] if p[3]
+                                       and CFG.get("summary", {}).get(
+                                           "clear_after") else "", p[1]))
         return
     if len(sys.argv) >= 3 and sys.argv[1] == "--play":
         device = None

@@ -12,15 +12,19 @@
   notivox-ctl test [LANGUE]   lit une phrase d'essai
   notivox-ctl log [N]         affiche les N dernières lignes du journal
   notivox-ctl contact NUMÉRO  cherche ce numéro dans le carnet d'adresses
-  notivox-ctl summary         lit le résumé de la Vue Événements
+  notivox-ctl events          lit le résumé de la Vue Événements, dans les
+                              écouteurs seulement (comme « summary »)
+  notivox-ctl events-speakers lit le résumé, sur le haut-parleur s'il n'y
+                              a pas d'écouteurs
   notivox-ctl stop            interrompt la lecture en cours (et le résumé)
-  notivox-ctl events          affiche la Vue Événements et le résumé prévu
+  notivox-ctl preview         affiche la Vue Événements et le résumé prévu,
+                              sans rien lire ni effacer
 
 Les mêmes commandes existent en signaux D-Bus, utiles si Situations ne
 sait envoyer que des messages D-Bus :
   dbus-send --session --type=signal /org/notivox org.notivox.Control.Disable
   (Enable, Disable, Toggle, Resume, Pause int32:30, Say string:"texte",
-   Summary, Stop)
+   Summary, Summary string:speaker, Stop)
 """
 import json
 import os
@@ -82,13 +86,16 @@ def main(argv):
     elif cmd == "test":
         signal_("Test", "string:" + (argv[1] if len(argv) > 1 else ""))
         return 0
-    elif cmd == "summary":
+    elif cmd in ("events", "summary"):
         signal_("Summary")
+        return 0
+    elif cmd == "events-speakers":
+        signal_("Summary", "string:speaker")
         return 0
     elif cmd == "stop":
         signal_("Stop")
         return 0
-    elif cmd == "events":
+    elif cmd == "preview":
         return subprocess.run(["/usr/bin/python3", "/usr/bin/notivox-daemon",
                                "--events"]).returncode
     elif cmd == "contact":

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0 (2026-11-07, not published)
+
+- New form of the spoken summary: a greeting with the date and time; the total number of notifications and the apps they come from; then, for each app, its number of notifications and, when it is read in full, each one numbered and separated by a short beep; a closing sentence. Short pauses separate the parts. Available in French, English, German, Spanish and Italian.
+- Each notification family can be set to "do not announce", "announce the count" or "read everything", and any app can override its family's setting from its own page.
+- `notivox-ctl events` reads the summary in headphones only; `notivox-ctl events-speakers` reads it on the loudspeaker when no headphones are connected. `notivox-ctl preview` shows what would be read.
+- Phrases are synthesised one after the other while the previous one plays, so the summary starts quickly and flows without gaps.
+
 ## 1.2.0 (2026-11-07, not published)
 
 - New spoken summary of the Events view. It announces how many notifications each app has, then reads them in full, each in its own language. It reads every notification still shown, not only new ones.

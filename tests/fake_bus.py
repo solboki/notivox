@@ -79,6 +79,9 @@ async def main():
     elif steps == "summary":
         await sig(bus, "/org/notivox", "org.notivox.Control", "Summary", "",
                   [])
+    elif steps == "summary-speaker":
+        await sig(bus, "/org/notivox", "org.notivox.Control", "Summary", "s",
+                  ["speaker"])
     elif steps == "control":
         await sig(bus, "/org/notivox", "org.notivox.Control", "Pause", "i",
                   [30])

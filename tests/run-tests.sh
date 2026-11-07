@@ -164,17 +164,26 @@ check "pause respectée" "notification non lue (en pause)"
 check "texte libre lu" "défaut : Texte libre envoyé par Situations"
 
 echo "== résumé de la Vue Événements"
-run summary '{"debug": true, "summary": {"clear_after": true}}' 25
-check "décompte par application" "6 notifications. Signal, une notification. Courriel, un courriel."
-check "message anglais lu par une autre voix" "lecture [en/espeak]"
+run summary '{"debug": true, "summary": {"clear_after": true}, "apps": {"Signal": {"summary": "full"}}}' 30
+check "date et heure annoncées" "Bonjour. Nous sommes le"
+check "total et applications" "Vous avez reçu 6 notifications, venant de Signal, Courriel"
+check "élision devant une voyelle" "notifications d'" 0
+check "décompte d'une application" "Vous avez 2 notifications de WhatsApp."
+check "messages numérotés" "1 : Alice Martin. Tu es dispo"
+check "message anglais lu par une autre voix" "lecture [en/"
+check "courriels : nombre seulement" "La campagne d'entretiens" 0
 check "notifications système exclues par défaut" "Batterie faible" 0
-check "fin du résumé" "Fin du résumé."
+check "formule de fin" "Fin de vos notifications. À bientôt."
+check "bip entre deux messages" "beep" 1
 n=$(grep -c '^fermeture' "$WORK/bus.log")
-if [ "$n" -eq 5 ]; then echo "ok    cinq notifications effacées après lecture (appel non effaçable gardé)"
+if [ "$n" -eq 4 ]; then echo "ok    quatre notifications lues puis effacées (nombre seul et appel non effaçable gardés)"
 else echo "ÉCHEC effacement : $n fermetures"; cat "$WORK/bus.log"; FAIL=1; fi
 
 echo "== résumé sans écouteurs"
 OUTPUT=speaker run summary '{"debug": true}' 6
-plays "rien n'est lu sans écouteurs" 0
+plays "events : rien n'est lu sans écouteurs" 0
+OUTPUT=speaker run summary-speaker '{"debug": true}' 25
+if [ "$PLAYS" -gt 5 ]; then echo "ok    events-speakers : lu sur le haut-parleur"
+else echo "ÉCHEC events-speakers : $PLAYS lectures"; FAIL=1; fi
 
 exit $FAIL
